@@ -1,0 +1,51 @@
+name: Windows Release
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '**.rs'
+      - 'Cargo.toml'
+      - '.github/workflows/windows-release.yml'
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Rust
+        shell: pwsh
+        run: |
+          rustup install stable
+          rustup default stable
+          rustup target add x86_64-pc-windows-msvc
+      - name: Build project
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Get version from Cargo.toml
+        id: get_version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.*)"').Matches.Groups[1].Value
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Zip executable
+        run: |
+          $exePath = "target\x86_64-pc-windows-msvc\release\ms2cc.exe"
+          Compress-Archive -Path $exePath -DestinationPath "ms2cc-${{ steps.get_version.outputs.version }}.zip"
+      - name: Generate changelog
+        id: changelog
+        shell: pwsh
+        run: |
+          $repo = "${{ github.repository }}"
+          $lastTag = git describe --tags --abbrev=0 HEAD^
+          $log = git log $lastTag..HEAD --pretty=format:"* `%h` - %s by %an"
+          $logText = $log -join "`n"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "changelog=$logText"
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: ms2cc-${{ steps.get_version.outputs.version }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

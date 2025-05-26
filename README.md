@@ -1,7 +1,7 @@
 # MS2CC - MSBuild to Compile Commands
 
-A Rust CLI tool that uses `msbuild.log` files to generate a compliant[^1]
-`compile_commands.json` for use with C/C++ language servers.
+A Rust CLI tool that uses `msbuild.log` files to generate a
+`compile_commands.json` compliant [^1] file for use with C/C++ language servers.
 
 ## Introduction
 
@@ -20,9 +20,7 @@ entry follows this structure:
     {
         "file": "main.cpp",
         "directory": "C:\\projects\\example",
-        "arguments": [
-            "cl.exe", "/EHsc", "/Zi", "/D", "DEBUG", "main.cpp"
-        ]
+        "arguments": ["cl.exe", "/EHsc", "/Zi", "/D", "DEBUG", "main.cpp"]
     }
 ]
 ```
@@ -34,8 +32,8 @@ release or build it from source.
 
 ### Building from Source
 
-Since the tool was written in [Rust], the Rust development toolchain is
-required.
+Since the tool was written in [Rust], the Rust development toolchain is required
+for compilation.
 
 1. Prepare your environment by following the instructions on the
    [Rust installation page].
@@ -43,7 +41,7 @@ required.
 1. Build a debug release with `cargo build` or a release version with
    `cargo build --release`.
 1. The generated executable will be under the `./target/debug/` or
-   `./target/release` directory.
+   `./target/release/` directory.
 
 ## Generating the Database
 
@@ -77,6 +75,13 @@ Options:
   -h, --help                                 Print help
   -V, --version                              Print version
 ```
+
+### When to Regenerate the Database
+
+Several conditions require regenerating the `compile_commands.json` database:
+
+1. Source files are added to, removed from, or relocated within the project.
+1. Changes are made to any source file's compile commands.
 
 ## Editor Configuration
 

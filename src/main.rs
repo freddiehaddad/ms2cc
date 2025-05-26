@@ -274,7 +274,7 @@ fn create_compile_commands(
 ) {
     while let Ok(arguments) = rx.recv() {
         // The file name should be the last compiler argument
-        let mut path = match arguments.last() {
+        let arg_path = match arguments.last() {
             Some(path) => PathBuf::from(path.to_lowercase()),
             None => {
                 let e = String::from("Token vector is empty!");
@@ -284,10 +284,10 @@ fn create_compile_commands(
         };
 
         // Is the last argument in the compile command a file?
-        let file_name = match path.file_name() {
+        let file_name = match arg_path.file_name() {
             Some(file_name) => PathBuf::from(file_name),
             None => {
-                let e = format!("Missing file_name component in {path:?}");
+                let e = format!("Missing file_name component in {arg_path:?}");
                 let _ = error_tx.send(e);
                 continue;
             }
@@ -295,7 +295,8 @@ fn create_compile_commands(
 
         // Does it have an extension?
         if file_name.extension().is_none() {
-            let e = format!("File name missing extension {file_name:?}");
+            let e =
+                format!("File name component missing extension {arg_path:?}");
             let _ = error_tx.send(e);
             continue;
         }
@@ -304,30 +305,45 @@ fn create_compile_commands(
         // absolute path.
 
         // First we check our directory tree
-        if !path.is_absolute() {
+        let mut path = PathBuf::new();
+        if !arg_path.is_absolute() {
             if let Some(parent) = map.get(&file_name) {
                 path = parent.clone();
                 path.push(&file_name);
             };
         }
 
-        // Last option is to try and reconstruct the path from the /Fo argument.
+        // Last option is trying to reconstruct the path using the /Fo argument.
         if !path.is_absolute() {
-            let argument = "/Fo";
+            const ARGUMENT: &str = "/Fo";
             if let Some(fo_argument) =
-                arguments.iter().find(|s| s.starts_with(argument))
+                arguments.iter().find(|s| s.starts_with(ARGUMENT))
             {
                 path = PathBuf::from(
-                    fo_argument.strip_prefix(argument).unwrap().to_lowercase(),
+                    fo_argument.strip_prefix(ARGUMENT).unwrap().to_lowercase(),
                 );
 
                 while path.has_root() {
-                    path.push(&file_name);
+                    // Test using /Fo path and the filename from the argument.
+                    let mut test_path = path.clone();
+                    test_path.push(&file_name);
 
                     // Did we find the path?
-                    if path.is_file() {
+                    if test_path.is_file() {
+                        path = test_path;
                         break;
                     }
+
+                    // Let's try with the relative path in the argument.
+                    test_path.pop();
+                    test_path.push(&arg_path);
+
+                    // Did we find the path?
+                    if test_path.is_file() {
+                        path = test_path;
+                        break;
+                    }
+
                     path.pop();
 
                     // Reached the end?
@@ -335,6 +351,11 @@ fn create_compile_commands(
                         break;
                     }
                 }
+            } else {
+                let e =
+                    format!("No {ARGUMENT} argument found in {arguments:?}");
+                let _ = error_tx.send(e);
+                continue;
             }
         }
 

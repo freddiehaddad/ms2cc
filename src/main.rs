@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{File, read_dir};
@@ -126,13 +127,88 @@ fn build_file_map(entry_rx: Receiver<PathBuf>) -> HashMap<PathBuf, PathBuf> {
 }
 
 /// Searches an `msbuild.log` for all lines containing `s` string and sends
-/// them out on the `tx` channel.
-fn find_all_lines(reader: BufReader<File>, s: &str, tx: Sender<String>) {
-    reader.lines().map_while(Result::ok).for_each(|line| {
-        if line.to_lowercase().contains(s) {
-            let _ = tx.send(line);
+/// them out on the `tx` channel. Any errors are reported on the `e_tx` channel.
+fn find_all_lines(
+    reader: BufReader<File>,
+    s: &str,
+    tx: Sender<String>,
+    e_tx: Sender<String>,
+) {
+    const PATTERN: &str = r#"(.c|.cc|.cpp|.cxx)"?\s*$"#;
+    let re = match Regex::new(PATTERN) {
+        Ok(re) => re,
+        Err(e) => {
+            let e = format!("Error creating regular expression {PATTERN}: {e}");
+            let _ = e_tx.send(e);
+            return;
         }
-    });
+    };
+
+    let mut compile_command = String::new();
+    let mut multi_line = false;
+    for line in reader.lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(e) => {
+                let e = format!("Error while reading lines {e}");
+                let _ = e_tx.send(e);
+                continue;
+            }
+        };
+
+        // Convert to lowercase for simplified pattern matching
+        let lowercase = line.to_lowercase();
+
+        // Check our state
+        if !multi_line {
+            // Skip non compile command lines
+            if !lowercase.contains(s) {
+                continue;
+            }
+
+            // Is this a complete compile command (cl.exe ... file.cpp)?
+            if re.is_match(&lowercase) {
+                let _ = tx.send(line);
+                continue;
+            }
+
+            // This compile command is on multiple lines (cl.exe ...)
+            multi_line = true;
+            compile_command = line;
+            continue;
+        } else {
+            // Append to the previous line
+            compile_command.push_str(&line);
+
+            // Is this the end of the command (... file.cpp)?
+            if re.is_match(&lowercase) {
+                let _ = tx.send(compile_command);
+
+                // Reset state
+                compile_command = String::new();
+                multi_line = false;
+                continue;
+            }
+
+            // This should be part of the line (... /Zi /EHsc ...), but let's
+            // make sure.
+            if lowercase.contains(s) {
+                // We encountered a new line containing cl.exe before reaching
+                // completing the previous compile command.
+
+                // We'll log an error, reset the state and continue.
+                let e = format!(
+                    "Unexpected line {} while building the compile command {}",
+                    line, compile_command
+                );
+                let _ = e_tx.send(e);
+
+                // Reset state
+                compile_command = String::new();
+                multi_line = false;
+            }
+        }
+    }
 }
 
 /// Listens on the `rx` channel for strings and strips them of all superfluous
@@ -356,6 +432,7 @@ fn main() -> Result<()> {
         });
 
         // Collect all the compile commands from the input file
+        let e_tx = error_tx.clone();
         s.spawn(move || {
             println!("Log searching thread initialized.");
             println!(
@@ -366,6 +443,7 @@ fn main() -> Result<()> {
                 input_file_handle,
                 &cli.compiler_executable,
                 source_tx,
+                e_tx,
             );
         });
 
@@ -382,14 +460,10 @@ fn main() -> Result<()> {
         });
 
         // Verify the input
+        let e_tx = error_tx.clone();
         s.spawn(move || {
             println!("Compile command generation thread initialized.");
-            create_compile_commands(
-                tree,
-                token_rx,
-                compile_command_tx,
-                error_tx,
-            );
+            create_compile_commands(tree, token_rx, compile_command_tx, e_tx);
         });
 
         // Generate the compile_commands.json file

@@ -81,22 +81,21 @@ fn find_all_files(
                 continue;
             }
 
-            if !path.is_file() {
-                let e = format!("{path:?} is not a file");
-                let _ = error_tx.send(e);
+            if path.is_file() {
+                // Normalize the path
+                if let Some(path) =
+                    path.to_str().map(|s| s.to_lowercase()).map(PathBuf::from)
+                {
+                    let _ = entry_tx.send(path);
+                } else {
+                    let e = format!("Failed to normalize {path:?}");
+                    let _ = error_tx.send(e);
+                }
                 continue;
             }
 
-            // Normalize the path
-            if let Some(path) =
-                path.to_str().map(|s| s.to_lowercase()).map(PathBuf::from)
-            {
-                let _ = entry_tx.send(path);
-            } else {
-                let e = format!("Failed to normalize {path:?}");
-                let _ = error_tx.send(e);
-                continue;
-            }
+            let e = format!("Unknown entry {path:?}");
+            let _ = error_tx.send(e);
         }
     }
 }

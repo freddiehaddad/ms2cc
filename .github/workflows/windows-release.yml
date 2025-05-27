@@ -1,15 +1,11 @@
 name: Windows Release
 on:
   push:
-    branches:
-      - master
-    paths:
-      - '**.rs'
-      - 'Cargo.toml'
-      - '.github/workflows/windows-release.yml'
+    tags:
+      - "*"
 jobs:
   build:
-    if: "!startsWith(github.event.head_commit.message, 'docs:')"
+    # if: "!startsWith(github.event.head_commit.message, 'docs:')"
     runs-on: windows-latest
     steps:
       - name: Checkout code

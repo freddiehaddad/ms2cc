@@ -126,6 +126,7 @@ configuration file:
 
 ```yaml
 CompileFlags:
+  # Directory to compile_commands.json (omit the file name)
   CompilationDatabase: c:\\path\\to\\your\\compile_commands.json
 ```
 

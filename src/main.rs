@@ -490,7 +490,11 @@ fn main() -> Result<()> {
         // Generate the compile_commands.json file
         println!("Waiting for compile commands ...",);
         let compile_commands: Vec<_> = compile_command_rx.iter().collect();
-        println!("Writing {:?} database ...", cli.output_file);
+        println!(
+            "Writing {} entries to {:?} database ...",
+            compile_commands.len(),
+            cli.output_file
+        );
         let _ =
             serde_json::to_writer_pretty(output_file_handle, &compile_commands);
     });

@@ -21,7 +21,7 @@ struct CompileCommand {
 #[derive(Parser)]
 #[command(
     version,
-    about = "Tool to generate a compile_commands.json file from an msbuild.log file."
+    about = "Tool to generate a compile_commands.json database from an msbuild.log file."
 )]
 struct Cli {
     /// Path to msbuild.log

@@ -1,15 +1,17 @@
 # MS2CC - MSBuild to Compile Commands
 
 A Rust CLI tool that uses `msbuild.log` files to generate a
-`compile_commands.json` compliant [^1] file for use with C/C++ language servers.
+`compile_commands.json` compliant [^1] database for use with C/C++ language
+servers.
 
 ## Introduction
 
-This tool enables full Language Server Protocol ([LSP]) support for any C/C++
-language server that relies on a `compile_commands.json` database by converting
-the `msbuild.log` output generated during a full MSBuild project build. Two such
-language servers are [clangd] and [Microsoft C/C++ Extension] for Visual Studio
-Code.
+This tool enables full IDE-like functionality for C/C++ Language Server Protocol
+([LSP]) compliant language servers that rely on a `compile_commands.json`
+database. It works by converting `msbuild.log` output files, generated when
+performing a full MSBuild project build, into a `compile_commands.json`
+database. Two such language servers are [clangd] and [Microsoft C/C++ Extension]
+for Visual Studio Code.
 
 The `compile_commands.json` file is a database that lists all source files in
 your project along with the exact commands needed to compile each one. Each

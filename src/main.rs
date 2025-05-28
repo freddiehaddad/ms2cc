@@ -428,6 +428,7 @@ fn main() -> Result<()> {
 
         // Traverse the directory tree
         println!("Directory thraversal thread initialized.");
+        println!("Scanning {:?} ...", cli.source_directory);
         find_all_files(cli.source_directory, entry_tx, error_tx);
 
         // Return the tree to the main thread

@@ -65,7 +65,7 @@ for compilation.
 
 ```console
 $ ms2cc.exe --help
-Tool to generate a compile_commands.json file from an msbuild.log file.
+Tool to generate a compile_commands.json database from an msbuild.log file.
 
 Usage: ms2cc.exe [OPTIONS] --input-file <INPUT_FILE> --source-directory <SOURCE_DIRECTORY>
 
@@ -74,6 +74,7 @@ Options:
   -o, --output-file <OUTPUT_FILE>            Output JSON file [default: compile_commands.json]
   -d, --source-directory <SOURCE_DIRECTORY>  Path to source code
   -c, --compiler-executable <EXE>            Name of compiler executable [default: cl.exe]
+  -t, --max-threads <MAX_THREADS>            Max number of threads per task [default: 10]
   -h, --help                                 Print help
   -V, --version                              Print version
 ```

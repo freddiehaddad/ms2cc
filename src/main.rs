@@ -1,11 +1,12 @@
 use clap::Parser;
+use crossbeam_channel::{Receiver, Sender, unbounded};
+use dashmap::DashMap;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::Arc;
 use std::{process, thread};
 
 /// compile_commands.json entry descriptor
@@ -38,6 +39,10 @@ struct Cli {
     /// Name of compiler executable
     #[arg(short('c'), long, name = "EXE", default_value = "cl.exe")]
     compiler_executable: String,
+
+    /// Max number of threads per task
+    #[arg(short('t'), long, default_value_t = 8)]
+    max_threads: u8,
 }
 
 /// Error handler.  Reports any received errors to `STDERR`.
@@ -51,12 +56,14 @@ fn error_handler(error_rx: Receiver<String>) {
 /// any files found on the `entry_tx` sender channel. Any IO errors are reported
 /// to the `error_tx` channel.
 fn find_all_files(
-    path: PathBuf,
+    directory_rx: Receiver<PathBuf>,
+    directory_tx: Sender<PathBuf>,
     entry_tx: Sender<PathBuf>,
     error_tx: Sender<String>,
 ) {
-    let mut stack = vec![path];
-    while let Some(path) = stack.pop() {
+    while let Ok(path) =
+        directory_rx.recv_timeout(std::time::Duration::from_secs(1))
+    {
         let reader = match read_dir(&path) {
             Ok(r) => r,
             Err(e) => {
@@ -77,7 +84,7 @@ fn find_all_files(
 
             let path = entry.path();
             if path.is_dir() {
-                stack.push(path);
+                let _ = directory_tx.send(path);
                 continue;
             }
 
@@ -105,10 +112,14 @@ fn find_all_files(
 /// `msbuild.log` that only include a file name without a path.
 ///
 /// NOTE: All paths are expected to be lowercase.
-fn build_file_map(entry_rx: Receiver<PathBuf>) -> HashMap<PathBuf, PathBuf> {
+fn build_file_map(
+    entry_rx: Receiver<PathBuf>,
+    tree: Arc<DashMap<PathBuf, PathBuf>>,
+) {
     // Generate a map of files and their directories
-    let mut tree = HashMap::new();
-    while let Ok(path) = entry_rx.recv() {
+    while let Ok(path) =
+        entry_rx.recv_timeout(std::time::Duration::from_secs(1))
+    {
         // Test if entry is a file with an extension
         if path.extension().is_some() {
             let file_name = PathBuf::from(path.file_name().unwrap());
@@ -120,7 +131,6 @@ fn build_file_map(entry_rx: Receiver<PathBuf>) -> HashMap<PathBuf, PathBuf> {
                 .or_insert(parent);
         }
     }
-    tree
 }
 
 /// Searches an `msbuild.log` for all lines containing `s` string and sends
@@ -264,7 +274,7 @@ fn create_compile_command(
 /// not include it in `msbuild.log`. Errors are reported on the `error_tx`
 /// channel
 fn create_compile_commands(
-    map: HashMap<PathBuf, PathBuf>,
+    map: Arc<DashMap<PathBuf, PathBuf>>,
     rx: Receiver<Vec<String>>,
     tx: Sender<CompileCommand>,
     error_tx: Sender<String>,
@@ -428,53 +438,86 @@ fn main() {
     println!(
         "Preparing to generate the lookup tree (this will take some time) ..."
     );
-    let tree = thread::scope(|s| {
-        let (entry_tx, entry_rx) = channel();
-        let (error_tx, error_rx) = channel();
+    let tree = Arc::new(DashMap::new());
+    {
+        let (directory_tx, directory_rx) = unbounded();
+        let (entry_tx, entry_rx) = unbounded();
+        let (error_tx, error_rx) = unbounded();
 
         // Separate thread for error handling.
-        s.spawn(move || {
+        thread::spawn(move || {
             println!("Error handling thread initialized.");
             error_handler(error_rx);
         });
 
-        // Process discovered files
-        let h = s.spawn(move || {
-            println!("Tree generating thread initilized.");
-            // Value is returned by the thread
-            build_file_map(entry_rx)
-        });
-
         // Traverse the directory tree
-        println!("Directory thraversal thread initialized.");
         println!("Scanning {:?} ...", cli.source_directory);
-        find_all_files(cli.source_directory, entry_tx, error_tx);
 
-        // Return the tree to the main thread
-        h.join().unwrap()
-    });
+        let _ = directory_tx.send(cli.source_directory);
+        let mut directory_handles = Vec::new();
+        for i in 0..cli.max_threads {
+            let directory_rx = directory_rx.clone();
+            let directory_tx = directory_tx.clone();
+            let error_tx = error_tx.clone();
+            let entry_tx = entry_tx.clone();
+
+            let handle = thread::spawn(move || {
+                find_all_files(directory_rx, directory_tx, entry_tx, error_tx);
+            });
+
+            directory_handles.push(handle);
+            println!("Directory traversal thread[{i}] initialized.");
+        }
+
+        // Process discovered files
+        let mut entry_handles = Vec::new();
+        for i in 0..cli.max_threads {
+            let entry_rx = entry_rx.clone();
+            let tree = Arc::clone(&tree);
+
+            let handle = thread::spawn(move || {
+                build_file_map(entry_rx, tree);
+            });
+
+            entry_handles.push(handle);
+            println!("Tree generating thread[{i}] initialized.");
+        }
+
+        // Close the original sender channels to signal no more work
+        drop(directory_tx);
+        drop(entry_tx);
+        drop(error_tx);
+
+        for handle in directory_handles {
+            let _ = handle.join();
+        }
+
+        for handle in entry_handles {
+            let _ = handle.join();
+        }
+    }
     println!("Finished");
 
     println!(
         "Preparing to generate {:?} (this will take some time) ...",
         cli.output_file
     );
-    thread::scope(|s| {
-        let (source_tx, source_rx) = channel();
-        let (preprocess_tx, preprocess_rx) = channel();
-        let (token_tx, token_rx) = channel();
-        let (compile_command_tx, compile_command_rx) = channel();
-        let (error_tx, error_rx) = channel();
+    {
+        let (source_tx, source_rx) = unbounded();
+        let (preprocess_tx, preprocess_rx) = unbounded();
+        let (token_tx, token_rx) = unbounded();
+        let (compile_command_tx, compile_command_rx) = unbounded();
+        let (error_tx, error_rx) = unbounded();
 
         // Separate thread for error handling.
-        s.spawn(move || {
+        thread::spawn(move || {
             println!("Error handling thread initialized.");
             error_handler(error_rx);
         });
 
         // Collect all the compile commands from the input file
         let e_tx = error_tx.clone();
-        s.spawn(move || {
+        thread::spawn(move || {
             println!("Log searching thread initialized.");
             println!(
                 "Scanning {:?} (this will take some time) ...",
@@ -489,20 +532,20 @@ fn main() {
         });
 
         // Remove nested quotes (")
-        s.spawn(move || {
+        thread::spawn(move || {
             println!("Log entry cleanup thread initialized.");
             cleanup_line(source_rx, preprocess_tx);
         });
 
         // Tokenize
-        s.spawn(move || {
+        thread::spawn(move || {
             println!("Log entry tokenization thread initialized.");
             tokenize_lines(preprocess_rx, token_tx);
         });
 
         // Verify the input
         let e_tx = error_tx.clone();
-        s.spawn(move || {
+        thread::spawn(move || {
             println!("Compile command generation thread initialized.");
             create_compile_commands(tree, token_rx, compile_command_tx, e_tx);
         });
@@ -517,6 +560,6 @@ fn main() {
         );
         let _ =
             serde_json::to_writer_pretty(output_file_handle, &compile_commands);
-    });
+    }
     println!("Finished");
 }

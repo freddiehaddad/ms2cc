@@ -7,6 +7,7 @@ use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use std::{process, thread};
 
 /// compile_commands.json entry descriptor
@@ -62,7 +63,7 @@ fn find_all_files(
     error_tx: Sender<String>,
 ) {
     while let Ok(path) =
-        directory_rx.recv_timeout(std::time::Duration::from_secs(1))
+        directory_rx.recv_timeout(std::time::Duration::from_millis(500))
     {
         let reader = match read_dir(&path) {
             Ok(r) => r,
@@ -118,7 +119,7 @@ fn build_file_map(
 ) {
     // Generate a map of files and their directories
     while let Ok(path) =
-        entry_rx.recv_timeout(std::time::Duration::from_secs(1))
+        entry_rx.recv_timeout(std::time::Duration::from_millis(500))
     {
         // Test if entry is a file with an extension
         if path.extension().is_some() {
@@ -157,7 +158,7 @@ fn find_all_lines(
         let line = match line {
             Ok(line) => line,
             Err(e) => {
-                let e = format!("Error while reading lines {e}");
+                let e = format!("Skipping a read error in log file: {e}");
                 let _ = e_tx.send(e);
                 continue;
             }
@@ -398,7 +399,6 @@ fn main() {
 
     let package_name = env!("CARGO_PKG_NAME");
     let package_version = env!("CARGO_PKG_VERSION");
-    println!("{package_name} v{package_version}");
 
     // File reader
     let input_file_handle = match File::open(&cli.input_file) {
@@ -432,134 +432,162 @@ fn main() {
     };
 
     //
+    // Ready to generate the lookup table
+    //
+    println!();
+    println!("==================================================");
+    println!("{package_name} v{package_version} - Run Start");
+    println!("==================================================");
+    println!();
+    println!("Preparing lookup tree (this may take a while)");
+    println!();
+
+    let start_time = Instant::now();
+    let task_start_time = start_time;
+    let tree = Arc::new(DashMap::new());
+    println!("Scanning source directory: {:?}", cli.source_directory);
+    println!("Starting threads:");
+    println!(" - 1 error handling thread");
+    println!(" - {} directory traversal threads", cli.max_threads);
+    println!(" - {} file processing threads", cli.max_threads);
+    println!();
+
+    let (directory_tx, directory_rx) = unbounded();
+    let (entry_tx, entry_rx) = unbounded();
+    let (error_tx, error_rx) = unbounded();
+
+    // Separate thread for error handling.
+    thread::spawn(move || {
+        error_handler(error_rx);
+    });
+
+    // Traverse the directory tree
+
+    let _ = directory_tx.send(cli.source_directory);
+    let mut directory_handles = Vec::new();
+    for _ in 0..cli.max_threads {
+        let directory_rx = directory_rx.clone();
+        let directory_tx = directory_tx.clone();
+        let error_tx = error_tx.clone();
+        let entry_tx = entry_tx.clone();
+
+        let handle = thread::spawn(move || {
+            find_all_files(directory_rx, directory_tx, entry_tx, error_tx);
+        });
+
+        directory_handles.push(handle);
+    }
+
+    // Process discovered files
+    let mut entry_handles = Vec::new();
+    for _ in 0..cli.max_threads {
+        let entry_rx = entry_rx.clone();
+        let tree = Arc::clone(&tree);
+
+        let handle = thread::spawn(move || {
+            build_file_map(entry_rx, tree);
+        });
+
+        entry_handles.push(handle);
+    }
+
+    // Close the original sender channels to signal no more work
+    drop(directory_tx);
+    drop(entry_tx);
+    drop(error_tx);
+
+    for handle in directory_handles {
+        let _ = handle.join();
+    }
+
+    for handle in entry_handles {
+        let _ = handle.join();
+    }
+
+    let elapsed_time = task_start_time.elapsed();
+    println!(
+        "Lookup tree generation completed in {:0.02} seconds",
+        elapsed_time.as_secs_f32()
+    );
+
+    //
     // Ready to generate database
     //
+    println!();
+    println!("--------------------------------------------------");
+    println!("Preparing to generate database");
+    println!("--------------------------------------------------");
+    println!();
+    println!("Input log file: {:?}", cli.input_file);
+    println!("Output file: {:?}", cli.output_file);
+    println!("Starting threads:");
+    println!(" - 1 error handling thread");
+    println!(" - 1 log searching thread");
+    println!(" - 1 log entry cleanup thread");
+    println!(" - 1 tokenization thread");
+    println!(" - 1 compile command generation thread");
+    println!();
 
-    println!(
-        "Preparing to generate the lookup tree (this will take some time) ..."
-    );
-    let tree = Arc::new(DashMap::new());
-    {
-        let (directory_tx, directory_rx) = unbounded();
-        let (entry_tx, entry_rx) = unbounded();
-        let (error_tx, error_rx) = unbounded();
+    let task_start_time = Instant::now();
+    let (source_tx, source_rx) = unbounded();
+    let (preprocess_tx, preprocess_rx) = unbounded();
+    let (token_tx, token_rx) = unbounded();
+    let (compile_command_tx, compile_command_rx) = unbounded();
+    let (error_tx, error_rx) = unbounded();
 
-        // Separate thread for error handling.
-        thread::spawn(move || {
-            println!("Error handling thread initialized.");
-            error_handler(error_rx);
-        });
+    // Separate thread for error handling.
+    thread::spawn(move || {
+        error_handler(error_rx);
+    });
 
-        // Traverse the directory tree
-        println!("Scanning {:?} ...", cli.source_directory);
-
-        let _ = directory_tx.send(cli.source_directory);
-        let mut directory_handles = Vec::new();
-        for i in 0..cli.max_threads {
-            let directory_rx = directory_rx.clone();
-            let directory_tx = directory_tx.clone();
-            let error_tx = error_tx.clone();
-            let entry_tx = entry_tx.clone();
-
-            let handle = thread::spawn(move || {
-                find_all_files(directory_rx, directory_tx, entry_tx, error_tx);
-            });
-
-            directory_handles.push(handle);
-            println!("Directory traversal thread[{i}] initialized.");
-        }
-
-        // Process discovered files
-        let mut entry_handles = Vec::new();
-        for i in 0..cli.max_threads {
-            let entry_rx = entry_rx.clone();
-            let tree = Arc::clone(&tree);
-
-            let handle = thread::spawn(move || {
-                build_file_map(entry_rx, tree);
-            });
-
-            entry_handles.push(handle);
-            println!("Tree generating thread[{i}] initialized.");
-        }
-
-        // Close the original sender channels to signal no more work
-        drop(directory_tx);
-        drop(entry_tx);
-        drop(error_tx);
-
-        for handle in directory_handles {
-            let _ = handle.join();
-        }
-
-        for handle in entry_handles {
-            let _ = handle.join();
-        }
-    }
-    println!("Finished");
-
-    println!(
-        "Preparing to generate {:?} (this will take some time) ...",
-        cli.output_file
-    );
-    {
-        let (source_tx, source_rx) = unbounded();
-        let (preprocess_tx, preprocess_rx) = unbounded();
-        let (token_tx, token_rx) = unbounded();
-        let (compile_command_tx, compile_command_rx) = unbounded();
-        let (error_tx, error_rx) = unbounded();
-
-        // Separate thread for error handling.
-        thread::spawn(move || {
-            println!("Error handling thread initialized.");
-            error_handler(error_rx);
-        });
-
-        // Collect all the compile commands from the input file
-        let e_tx = error_tx.clone();
-        thread::spawn(move || {
-            println!("Log searching thread initialized.");
-            println!(
-                "Scanning {:?} (this will take some time) ...",
-                cli.input_file
-            );
-            find_all_lines(
-                input_file_handle,
-                &cli.compiler_executable,
-                source_tx,
-                e_tx,
-            );
-        });
-
-        // Remove nested quotes (")
-        thread::spawn(move || {
-            println!("Log entry cleanup thread initialized.");
-            cleanup_line(source_rx, preprocess_tx);
-        });
-
-        // Tokenize
-        thread::spawn(move || {
-            println!("Log entry tokenization thread initialized.");
-            tokenize_lines(preprocess_rx, token_tx);
-        });
-
-        // Verify the input
-        let e_tx = error_tx.clone();
-        thread::spawn(move || {
-            println!("Compile command generation thread initialized.");
-            create_compile_commands(tree, token_rx, compile_command_tx, e_tx);
-        });
-
-        // Generate the compile_commands.json file
-        println!("Waiting for compile commands ...",);
-        let compile_commands: Vec<_> = compile_command_rx.iter().collect();
-        println!(
-            "Writing {} entries to {:?} database ...",
-            compile_commands.len(),
-            cli.output_file
+    // Collect all the compile commands from the input file
+    let e_tx = error_tx.clone();
+    thread::spawn(move || {
+        find_all_lines(
+            input_file_handle,
+            &cli.compiler_executable,
+            source_tx,
+            e_tx,
         );
-        let _ =
-            serde_json::to_writer_pretty(output_file_handle, &compile_commands);
-    }
-    println!("Finished");
+    });
+
+    // Remove nested quotes (")
+    thread::spawn(move || {
+        cleanup_line(source_rx, preprocess_tx);
+    });
+
+    // Tokenize
+    thread::spawn(move || {
+        tokenize_lines(preprocess_rx, token_tx);
+    });
+
+    // Verify the input
+    let e_tx = error_tx.clone();
+    thread::spawn(move || {
+        create_compile_commands(tree, token_rx, compile_command_tx, e_tx);
+    });
+
+    // Generate the compile_commands.json file
+    let compile_commands: Vec<_> = compile_command_rx.iter().collect();
+    let _ = serde_json::to_writer_pretty(output_file_handle, &compile_commands);
+    let elapsed_time = task_start_time.elapsed();
+    println!(
+        "Database generation completed in {:0.02} seconds",
+        elapsed_time.as_secs_f32()
+    );
+    let elapsed_time = start_time.elapsed();
+
+    println!();
+    println!("==================================================");
+    println!("                  Run Completed                   ");
+    println!("--------------------------------------------------");
+    println!();
+    println!("Total entries written: {:}", compile_commands.len());
+    println!("Output location: {:?}", cli.output_file);
+    println!(
+        "Total time elapsed: {:0.02} seconds",
+        elapsed_time.as_secs_f32()
+    );
+    println!();
+    println!("==================================================");
 }

@@ -116,9 +116,7 @@ fn build_file_map(entry_rx: Receiver<PathBuf>) -> HashMap<PathBuf, PathBuf> {
 
             // Add KV pair (file/path) to the hash table; clear on collision
             tree.entry(file_name)
-                .and_modify(|absolute_path: &mut PathBuf| {
-                    *absolute_path = PathBuf::new()
-                })
+                .and_modify(|absolute_path: &mut PathBuf| absolute_path.clear())
                 .or_insert(parent);
         }
     }

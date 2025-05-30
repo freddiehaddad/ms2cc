@@ -1,4 +1,3 @@
-use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -7,7 +6,7 @@ use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::thread;
+use std::{process, thread};
 
 /// compile_commands.json entry descriptor
 #[derive(Deserialize, Serialize)]
@@ -375,7 +374,17 @@ fn create_compile_commands(
     }
 }
 
-fn main() -> Result<()> {
+/// Prints an error message to standard error and exits.
+fn exit_with_message(msg: String) -> ! {
+    eprintln!("{msg}");
+    process::exit(-1);
+}
+
+fn main() {
+    //
+    // Input validation
+    //
+
     // Parse command line arguments
     let cli = Cli::parse();
 
@@ -384,27 +393,39 @@ fn main() -> Result<()> {
     println!("{package_name} v{package_version}");
 
     // File reader
-    let input_file_handle = BufReader::new(
-        File::open(&cli.input_file)
-            .with_context(|| format!("Failed to open {:?}", cli.input_file))?,
-    );
+    let input_file_handle = match File::open(&cli.input_file) {
+        Ok(handle) => BufReader::new(handle),
+        Err(e) => exit_with_message(format!(
+            "Failed to open {:?}: {}",
+            cli.input_file, e
+        )),
+    };
 
     // Verify source directory is a valid path
-    ensure!(
-        cli.source_directory.is_dir(),
-        format!(
+    if !cli.source_directory.is_dir() {
+        exit_with_message(format!(
             "Provided path is not a directory: {:?}",
             cli.source_directory
-        )
-    );
+        ));
+    }
 
     // File writer
-    let output_file_handle = File::options()
+    let output_file_handle = match File::options()
         .write(true)
         .create(true)
         .truncate(true)
         .open(&cli.output_file)
-        .with_context(|| format!("Failed to open {:?}", cli.output_file))?;
+    {
+        Ok(handle) => handle,
+        Err(e) => exit_with_message(format!(
+            "Failed to open {:?}: {}",
+            cli.output_file, e
+        )),
+    };
+
+    //
+    // Ready to generate database
+    //
 
     println!(
         "Preparing to generate the lookup tree (this will take some time) ..."
@@ -500,6 +521,4 @@ fn main() -> Result<()> {
             serde_json::to_writer_pretty(output_file_handle, &compile_commands);
     });
     println!("Finished");
-
-    Ok(())
 }

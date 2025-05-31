@@ -432,26 +432,34 @@ fn main() {
     };
 
     //
-    // Ready to generate the lookup table
+    // Ready
     //
-    println!();
     println!("==================================================");
-    println!("{package_name} v{package_version} - Run Start");
+    println!(
+        "{:^50}",
+        format!("{package_name} v{package_version} - Run Start")
+    );
     println!("==================================================");
-    println!();
-    println!("Preparing lookup tree (this may take a while)");
-    println!();
 
     let start_time = Instant::now();
-    let task_start_time = start_time;
-    let tree = Arc::new(DashMap::new());
-    println!("Scanning source directory: {:?}", cli.source_directory);
+    //
+    // Step 1
+    //
+    println!();
+    println!("--------------------------------------------------");
+    println!("{:^50}", "Generating the lookup tree");
+    println!("--------------------------------------------------");
+    println!();
+    println!("Source directory: {:?}", cli.source_directory);
+    println!();
     println!("Starting threads:");
     println!(" - 1 error handling thread");
     println!(" - {} directory traversal threads", cli.max_threads);
     println!(" - {} file processing threads", cli.max_threads);
     println!();
 
+    let task_start_time = Instant::now();
+    let tree = Arc::new(DashMap::new());
     let (directory_tx, directory_rx) = unbounded();
     let (entry_tx, entry_rx) = unbounded();
     let (error_tx, error_rx) = unbounded();
@@ -462,7 +470,6 @@ fn main() {
     });
 
     // Traverse the directory tree
-
     let _ = directory_tx.send(cli.source_directory);
     let mut directory_handles = Vec::new();
     for _ in 0..cli.max_threads {
@@ -509,17 +516,17 @@ fn main() {
         "Lookup tree generation completed in {:0.02} seconds",
         elapsed_time.as_secs_f32()
     );
+    println!();
 
     //
-    // Ready to generate database
+    // Step 2
     //
-    println!();
     println!("--------------------------------------------------");
-    println!("Preparing to generate database");
+    println!("{:^50}", "Generating the database");
     println!("--------------------------------------------------");
     println!();
-    println!("Input log file: {:?}", cli.input_file);
-    println!("Output file: {:?}", cli.output_file);
+    println!("Input file: {:?}", cli.input_file);
+    println!();
     println!("Starting threads:");
     println!(" - 1 error handling thread");
     println!(" - 1 log searching thread");
@@ -569,18 +576,39 @@ fn main() {
 
     // Generate the compile_commands.json file
     let compile_commands: Vec<_> = compile_command_rx.iter().collect();
-    let _ = serde_json::to_writer_pretty(output_file_handle, &compile_commands);
     let elapsed_time = task_start_time.elapsed();
     println!(
         "Database generation completed in {:0.02} seconds",
         elapsed_time.as_secs_f32()
     );
-    let elapsed_time = start_time.elapsed();
-
     println!();
-    println!("==================================================");
-    println!("                  Run Completed                   ");
+
+    //
+    // Step 3
+    //
     println!("--------------------------------------------------");
+    println!("{:^50}", "Writing the database to disk");
+    println!("--------------------------------------------------");
+    println!();
+    println!("Output file: {:?}", cli.output_file);
+    println!();
+
+    let task_start_time = Instant::now();
+    let _ = serde_json::to_writer_pretty(output_file_handle, &compile_commands);
+    let elapsed_time = task_start_time.elapsed();
+    println!(
+        "Database written in {:0.02} seconds",
+        elapsed_time.as_secs_f32()
+    );
+    println!();
+
+    //
+    // Finished
+    //
+    let elapsed_time = start_time.elapsed();
+    println!("==================================================");
+    println!("{:^50}", "Run completed");
+    println!("==================================================");
     println!();
     println!("Total entries written: {:}", compile_commands.len());
     println!("Output location: {:?}", cli.output_file);

@@ -72,6 +72,7 @@ Usage: ms2cc.exe [OPTIONS] --input-file <INPUT_FILE> --source-directory <SOURCE_
 Options:
   -i, --input-file <INPUT_FILE>              Path to msbuild.log
   -o, --output-file <OUTPUT_FILE>            Output JSON file [default: compile_commands.json]
+  -p, --pretty-print                         Pretty print output JSON file
   -d, --source-directory <SOURCE_DIRECTORY>  Path to source code
   -c, --compiler-executable <EXE>            Name of compiler executable [default: cl.exe]
   -t, --max-threads <MAX_THREADS>            Max number of threads per task [default: 10]

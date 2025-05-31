@@ -33,6 +33,10 @@ struct Cli {
     #[arg(short('o'), long, default_value = "compile_commands.json")]
     output_file: PathBuf,
 
+    /// Pretty print output JSON file
+    #[arg(short('p'), long, default_value_t = false)]
+    pretty_print: bool,
+
     /// Path to source code
     #[arg(short('d'), long)]
     source_directory: PathBuf,
@@ -594,7 +598,12 @@ fn main() {
     println!();
 
     let task_start_time = Instant::now();
-    let _ = serde_json::to_writer(output_file_handle, &compile_commands);
+    if cli.pretty_print {
+        let _ =
+            serde_json::to_writer_pretty(output_file_handle, &compile_commands);
+    } else {
+        let _ = serde_json::to_writer(output_file_handle, &compile_commands);
+    }
     let elapsed_time = task_start_time.elapsed();
     println!(
         "Database written in {:0.02} seconds",

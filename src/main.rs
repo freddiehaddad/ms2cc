@@ -594,7 +594,7 @@ fn main() {
     println!();
 
     let task_start_time = Instant::now();
-    let _ = serde_json::to_writer_pretty(output_file_handle, &compile_commands);
+    let _ = serde_json::to_writer(output_file_handle, &compile_commands);
     let elapsed_time = task_start_time.elapsed();
     println!(
         "Database written in {:0.02} seconds",

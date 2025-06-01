@@ -75,7 +75,7 @@ Options:
   -p, --pretty-print                         Pretty print output JSON file
   -d, --source-directory <SOURCE_DIRECTORY>  Path to source code
   -c, --compiler-executable <EXE>            Name of compiler executable [default: cl.exe]
-  -t, --max-threads <MAX_THREADS>            Max number of threads per task [default: 10]
+  -t, --max-threads <MAX_THREADS>            Max number of threads per task [default: 8]
   -h, --help                                 Print help
   -V, --version                              Print version
 ```

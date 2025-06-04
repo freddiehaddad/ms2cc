@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use dashmap::DashMap;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::{to_writer, to_writer_pretty};
 use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -598,11 +599,16 @@ fn main() {
     println!();
 
     let task_start_time = Instant::now();
-    if cli.pretty_print {
-        let _ =
-            serde_json::to_writer_pretty(output_file_handle, &compile_commands);
+
+    let writer_function = if cli.pretty_print {
+        to_writer_pretty
     } else {
-        let _ = serde_json::to_writer(output_file_handle, &compile_commands);
+        to_writer
+    };
+
+    if let Err(e) = writer_function(output_file_handle, &compile_commands) {
+        let m = format!("Failed to write {:?}: {}", cli.output_file, e);
+        exit_with_message(m);
     }
     let elapsed_time = task_start_time.elapsed();
     println!(

@@ -159,7 +159,8 @@ fn find_all_lines(
     tx: Sender<String>,
     e_tx: Sender<String>,
 ) {
-    const PATTERN: &str = r#"(.c|.cc|.cpp|.cxx)"?\s*$"#;
+    // More specific regex pattern for C/C++ source files
+    const PATTERN: &str = r#"\.(?:c|cc|cpp|cxx)(?:"|'|\s)*$"#;
     let re = match Regex::new(PATTERN) {
         Ok(re) => re,
         Err(e) => {
@@ -168,6 +169,9 @@ fn find_all_lines(
             return;
         }
     };
+
+    // Pre-lowercase the compiler executable for comparison
+    let compiler_exe_lower = s.to_lowercase();
 
     let mut compile_command = String::new();
     let mut multi_line = false;
@@ -187,7 +191,7 @@ fn find_all_lines(
         // Check our state
         if !multi_line {
             // Skip non compile command lines
-            if !lowercase.contains(s) {
+            if !lowercase.contains(&compiler_exe_lower) {
                 continue;
             }
 
@@ -217,7 +221,7 @@ fn find_all_lines(
 
             // This should be part of the line (... /Zi /EHsc ...), but let's
             // make sure.
-            if lowercase.contains(s) {
+            if lowercase.contains(&compiler_exe_lower) {
                 // We encountered a new line containing cl.exe before reaching
                 // completing the previous compile command.
 

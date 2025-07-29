@@ -5,7 +5,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{to_writer, to_writer_pretty};
 use std::fs::{File, read_dir};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, BufWriter};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -490,14 +490,14 @@ fn main() {
         }
     }
 
-    // File writer
+    // File writer with buffer for better performance
     let output_file_handle = match File::options()
         .write(true)
         .create(true)
         .truncate(true)
         .open(&cli.output_file)
     {
-        Ok(handle) => handle,
+        Ok(handle) => BufWriter::with_capacity(64 * 1024, handle), // 64KB buffer
         Err(e) => exit_with_message(format!(
             "Failed to open {:?}: {}",
             cli.output_file, e

@@ -227,8 +227,11 @@ fn find_all_lines(
 /// Listens on the `rx` channel for strings and strips them of all superfluous
 /// characters.  Sends the updated string on the `tx` channel.
 fn cleanup_line(rx: Receiver<String>, tx: Sender<String>) {
-    while let Ok(s) = rx.recv() {
-        let s = s.replace("\"", "");
+    while let Ok(mut s) = rx.recv() {
+        // Only process if quotes are present to avoid unnecessary work
+        if s.contains('"') {
+            s.retain(|c| c != '"');
+        }
         let _ = tx.send(s);
     }
 }

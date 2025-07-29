@@ -155,14 +155,18 @@ fn build_file_map(
     while let Ok(path) =
         entry_rx.recv_timeout(std::time::Duration::from_millis(500))
     {
-        // Files are already filtered to have extensions
-        let file_name = PathBuf::from(path.file_name().unwrap());
-        let parent = PathBuf::from(path.parent().unwrap());
+        // Files are already filtered to relevant extensions
+        if let (Some(file_name), Some(parent)) =
+            (path.file_name(), path.parent())
+        {
+            let file_name = PathBuf::from(file_name);
+            let parent = PathBuf::from(parent);
 
-        // Add KV pair (file/path) to the hash table; clear on collision
-        tree.entry(file_name)
-            .and_modify(|absolute_path: &mut PathBuf| absolute_path.clear())
-            .or_insert(parent);
+            // Add KV pair (file/path) to the hash table; clear on collision
+            tree.entry(file_name)
+                .and_modify(|absolute_path: &mut PathBuf| absolute_path.clear())
+                .or_insert(parent);
+        }
     }
 }
 

@@ -420,14 +420,24 @@ fn main() {
     let package_name = env!("CARGO_PKG_NAME");
     let package_version = env!("CARGO_PKG_VERSION");
 
-    // File reader
+    // File reader with larger buffer for better performance
     let input_file_handle = match File::open(&cli.input_file) {
-        Ok(handle) => BufReader::new(handle),
+        Ok(handle) => BufReader::with_capacity(64 * 1024, handle), // 64KB buffer
         Err(e) => exit_with_message(format!(
             "Failed to open {:?}: {}",
             cli.input_file, e
         )),
     };
+
+    // Early validation: check if input file is empty
+    if let Ok(metadata) = std::fs::metadata(&cli.input_file) {
+        if metadata.len() == 0 {
+            exit_with_message(format!(
+                "Input file {:?} is empty",
+                cli.input_file
+            ));
+        }
+    }
 
     // Verify source directory is a valid path
     if !cli.source_directory.is_dir() {

@@ -480,6 +480,16 @@ fn main() {
         ));
     }
 
+    // Quick check if source directory is likely to be empty or contain relevant files
+    if let Ok(mut entries) = std::fs::read_dir(&cli.source_directory) {
+        if entries.next().is_none() {
+            exit_with_message(format!(
+                "Source directory {:?} appears to be empty",
+                cli.source_directory
+            ));
+        }
+    }
+
     // File writer
     let output_file_handle = match File::options()
         .write(true)

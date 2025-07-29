@@ -90,19 +90,33 @@ fn find_all_files(
 
             let path = entry.path();
             if path.is_dir() {
+                // Skip common build/temporary directories to speed up traversal
+                if let Some(dir_name) =
+                    path.file_name().and_then(|n| n.to_str())
+                {
+                    let dir_name_lower = dir_name.to_lowercase();
+                    if matches!(dir_name_lower.as_str(), ".git") {
+                        continue;
+                    }
+                }
                 let _ = directory_tx.send(path);
                 continue;
             }
 
             if path.is_file() {
-                // Normalize the path
-                if let Some(path) =
-                    path.to_str().map(|s| s.to_lowercase()).map(PathBuf::from)
-                {
-                    let _ = entry_tx.send(path);
-                } else {
-                    let e = format!("Failed to normalize {path:?}");
-                    let _ = error_tx.send(e);
+                // Only process files with extensions (potential source files)
+                if path.extension().is_some() {
+                    // Normalize the path
+                    if let Some(path) = path
+                        .to_str()
+                        .map(|s| s.to_lowercase())
+                        .map(PathBuf::from)
+                    {
+                        let _ = entry_tx.send(path);
+                    } else {
+                        let e = format!("Failed to normalize {path:?}");
+                        let _ = error_tx.send(e);
+                    }
                 }
                 continue;
             }
@@ -126,16 +140,14 @@ fn build_file_map(
     while let Ok(path) =
         entry_rx.recv_timeout(std::time::Duration::from_millis(500))
     {
-        // Test if entry is a file with an extension
-        if path.extension().is_some() {
-            let file_name = PathBuf::from(path.file_name().unwrap());
-            let parent = PathBuf::from(path.parent().unwrap());
+        // Files are already filtered to have extensions
+        let file_name = PathBuf::from(path.file_name().unwrap());
+        let parent = PathBuf::from(path.parent().unwrap());
 
-            // Add KV pair (file/path) to the hash table; clear on collision
-            tree.entry(file_name)
-                .and_modify(|absolute_path: &mut PathBuf| absolute_path.clear())
-                .or_insert(parent);
-        }
+        // Add KV pair (file/path) to the hash table; clear on collision
+        tree.entry(file_name)
+            .and_modify(|absolute_path: &mut PathBuf| absolute_path.clear())
+            .or_insert(parent);
     }
 }
 

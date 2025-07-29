@@ -204,9 +204,12 @@ fn find_all_lines(
             // This compile command is on multiple lines (cl.exe ...)
             multi_line = true;
             compile_command = line;
+            // Pre-allocate space for multi-line commands to reduce reallocations
+            compile_command.reserve(512);
             continue;
         } else {
-            // Append to the previous line
+            // Append to the previous line with space separator
+            compile_command.push(' ');
             compile_command.push_str(&line);
 
             // Is this the end of the command (... file.cpp)?
@@ -256,8 +259,10 @@ fn cleanup_line(rx: Receiver<String>, tx: Sender<String>) {
 /// on the `tx` channel.
 fn tokenize_lines(rx: Receiver<String>, tx: Sender<Vec<String>>) {
     while let Ok(s) = rx.recv() {
-        let t: Vec<_> = s.split_whitespace().map(String::from).collect();
-        let _ = tx.send(t);
+        // Pre-allocate with estimated capacity to reduce reallocations
+        let mut tokens = Vec::with_capacity(s.len() / 8); // Rough estimate
+        tokens.extend(s.split_whitespace().map(String::from));
+        let _ = tx.send(tokens);
     }
 }
 
@@ -307,7 +312,7 @@ fn create_compile_commands(
     while let Ok(arguments) = rx.recv() {
         // The file name should be the last compiler argument
         let arg_path = match arguments.last() {
-            Some(path) => PathBuf::from(path.to_lowercase()),
+            Some(path) => path,
             None => {
                 let e = String::from("Token vector is empty!");
                 let _ = error_tx.send(e);
@@ -315,8 +320,11 @@ fn create_compile_commands(
             }
         };
 
+        // Convert to PathBuf and lowercase for processing
+        let arg_path_buf = PathBuf::from(arg_path.to_lowercase());
+
         // Is the last argument in the compile command a file?
-        let file_name = match arg_path.file_name() {
+        let file_name = match arg_path_buf.file_name() {
             Some(file_name) => PathBuf::from(file_name),
             None => {
                 let e = format!("Missing file_name component in {arg_path:?}");
@@ -338,11 +346,13 @@ fn create_compile_commands(
 
         // First we check our directory tree
         let mut path = PathBuf::new();
-        if !arg_path.is_absolute() {
+        if !arg_path_buf.is_absolute() {
             if let Some(parent) = map.get(&file_name) {
                 path = parent.clone();
                 path.push(&file_name);
             };
+        } else {
+            path = arg_path_buf.clone();
         }
 
         // Last option is trying to reconstruct the path using the /Fo argument.
@@ -368,7 +378,7 @@ fn create_compile_commands(
 
                     // Let's try with the relative path in the argument.
                     test_path.pop();
-                    test_path.push(&arg_path);
+                    test_path.push(&arg_path_buf);
 
                     // Did we find the path?
                     if test_path.is_file() {
@@ -610,6 +620,11 @@ fn main() {
 
     // Generate the compile_commands.json file
     let compile_commands: Vec<_> = compile_command_rx.iter().collect();
+
+    // Early exit if no compile commands found
+    if compile_commands.is_empty() {
+        println!("Warning: No compile commands found in the log file");
+    }
     let elapsed_time = task_start_time.elapsed();
     println!(
         "Database generation completed in {:0.02} seconds",

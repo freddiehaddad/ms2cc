@@ -104,18 +104,33 @@ fn find_all_files(
             }
 
             if path.is_file() {
-                // Only process files with extensions (potential source files)
-                if path.extension().is_some() {
-                    // Normalize the path
-                    if let Some(path) = path
-                        .to_str()
-                        .map(|s| s.to_lowercase())
-                        .map(PathBuf::from)
-                    {
-                        let _ = entry_tx.send(path);
-                    } else {
-                        let e = format!("Failed to normalize {path:?}");
-                        let _ = error_tx.send(e);
+                // Only process C/C++ source and header files
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    let ext_lower = ext.to_lowercase();
+                    if matches!(
+                        ext_lower.as_str(),
+                        "c" | "cc"
+                            | "cpp"
+                            | "cxx"
+                            | "c++"
+                            | "h"
+                            | "hh"
+                            | "hpp"
+                            | "hxx"
+                            | "h++"
+                            | "inl"
+                    ) {
+                        // Normalize the path
+                        if let Some(path) = path
+                            .to_str()
+                            .map(|s| s.to_lowercase())
+                            .map(PathBuf::from)
+                        {
+                            let _ = entry_tx.send(path);
+                        } else {
+                            let e = format!("Failed to normalize {path:?}");
+                            let _ = error_tx.send(e);
+                        }
                     }
                 }
                 continue;

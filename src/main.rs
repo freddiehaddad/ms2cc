@@ -11,6 +11,15 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::{process, thread};
 
+// Configuration constants
+const DEFAULT_BUFFER_SIZE: usize = 64 * 1024; // 64KB buffer for file I/O
+const RECV_TIMEOUT_MS: u64 = 500; // Timeout for channel receive operations
+const MULTILINE_RESERVE_SIZE: usize = 512; // Pre-allocation for multi-line commands
+const TOKEN_CAPACITY_DIVISOR: usize = 8; // Rough estimate for token capacity
+const DEFAULT_MAX_THREADS: u8 = 8; // Default number of threads per task
+const EXIT_FAILURE: i32 = -1; // Exit code for failure
+const HEADER_WIDTH: usize = 50; // Width for centered header text
+
 /// compile_commands.json entry descriptor
 #[derive(Deserialize, Serialize)]
 struct CompileCommand {
@@ -47,7 +56,7 @@ struct Cli {
     compiler_executable: String,
 
     /// Max number of threads per task
-    #[arg(short('t'), long, default_value_t = 8)]
+    #[arg(short('t'), long, default_value_t = DEFAULT_MAX_THREADS)]
     max_threads: u8,
 }
 
@@ -67,8 +76,8 @@ fn find_all_files(
     entry_tx: Sender<PathBuf>,
     error_tx: Sender<String>,
 ) {
-    while let Ok(path) =
-        directory_rx.recv_timeout(std::time::Duration::from_millis(500))
+    while let Ok(path) = directory_rx
+        .recv_timeout(std::time::Duration::from_millis(RECV_TIMEOUT_MS))
     {
         let reader = match read_dir(&path) {
             Ok(r) => r,
@@ -153,7 +162,7 @@ fn build_file_map(
 ) {
     // Generate a map of files and their directories
     while let Ok(path) =
-        entry_rx.recv_timeout(std::time::Duration::from_millis(500))
+        entry_rx.recv_timeout(std::time::Duration::from_millis(RECV_TIMEOUT_MS))
     {
         // Files are already filtered to relevant extensions
         if let (Some(file_name), Some(parent)) =
@@ -224,7 +233,7 @@ fn find_all_lines(
             multi_line = true;
             compile_command = line;
             // Pre-allocate space for multi-line commands to reduce reallocations
-            compile_command.reserve(512);
+            compile_command.reserve(MULTILINE_RESERVE_SIZE);
             continue;
         } else {
             // Append to the previous line with space separator
@@ -279,7 +288,7 @@ fn cleanup_line(rx: Receiver<String>, tx: Sender<String>) {
 fn tokenize_lines(rx: Receiver<String>, tx: Sender<Vec<String>>) {
     while let Ok(s) = rx.recv() {
         // Pre-allocate with estimated capacity to reduce reallocations
-        let mut tokens = Vec::with_capacity(s.len() / 8); // Rough estimate
+        let mut tokens = Vec::with_capacity(s.len() / TOKEN_CAPACITY_DIVISOR); // Rough estimate
         tokens.extend(s.split_whitespace().map(String::from));
         let _ = tx.send(tokens);
     }
@@ -439,7 +448,7 @@ fn create_compile_commands(
 /// Prints an error message to standard error and exits.
 fn exit_with_message(msg: String) -> ! {
     eprintln!("{msg}");
-    process::exit(-1);
+    process::exit(EXIT_FAILURE);
 }
 
 fn main() {
@@ -455,7 +464,7 @@ fn main() {
 
     // File reader with larger buffer for better performance
     let input_file_handle = match File::open(&cli.input_file) {
-        Ok(handle) => BufReader::with_capacity(64 * 1024, handle), // 64KB buffer
+        Ok(handle) => BufReader::with_capacity(DEFAULT_BUFFER_SIZE, handle), // 64KB buffer
         Err(e) => exit_with_message(format!(
             "Failed to open {:?}: {}",
             cli.input_file, e
@@ -497,7 +506,7 @@ fn main() {
         .truncate(true)
         .open(&cli.output_file)
     {
-        Ok(handle) => BufWriter::with_capacity(64 * 1024, handle), // 64KB buffer
+        Ok(handle) => BufWriter::with_capacity(DEFAULT_BUFFER_SIZE, handle), // 64KB buffer
         Err(e) => exit_with_message(format!(
             "Failed to open {:?}: {}",
             cli.output_file, e
@@ -509,8 +518,9 @@ fn main() {
     //
     println!("==================================================");
     println!(
-        "{:^50}",
-        format!("{package_name} v{package_version} - Run Start")
+        "{:^width$}",
+        format!("{package_name} v{package_version} - Run Start"),
+        width = HEADER_WIDTH
     );
     println!("==================================================");
 
@@ -520,7 +530,11 @@ fn main() {
     //
     println!();
     println!("--------------------------------------------------");
-    println!("{:^50}", "Generating the lookup tree");
+    println!(
+        "{:^width$}",
+        "Generating the lookup tree",
+        width = HEADER_WIDTH
+    );
     println!("--------------------------------------------------");
     println!();
     println!("Source directory: {:?}", cli.source_directory);
@@ -595,7 +609,11 @@ fn main() {
     // Step 2
     //
     println!("--------------------------------------------------");
-    println!("{:^50}", "Generating the database");
+    println!(
+        "{:^width$}",
+        "Generating the database",
+        width = HEADER_WIDTH
+    );
     println!("--------------------------------------------------");
     println!();
     println!("Input file: {:?}", cli.input_file);
@@ -665,7 +683,11 @@ fn main() {
     // Step 3
     //
     println!("--------------------------------------------------");
-    println!("{:^50}", "Writing the database to disk");
+    println!(
+        "{:^width$}",
+        "Writing the database to disk",
+        width = HEADER_WIDTH
+    );
     println!("--------------------------------------------------");
     println!();
     println!("Output file: {:?}", cli.output_file);
@@ -695,7 +717,7 @@ fn main() {
     //
     let elapsed_time = start_time.elapsed();
     println!("==================================================");
-    println!("{:^50}", "Run completed");
+    println!("{:^width$}", "Run completed", width = HEADER_WIDTH);
     println!("==================================================");
     println!();
     println!("Total entries written: {:}", compile_commands.len());

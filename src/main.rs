@@ -54,6 +54,22 @@ struct Cli {
     #[arg(short('e'), long, default_values_t = [".git".to_string()])]
     exclude_directories: Vec<String>,
 
+    /// File extensions to process (comma-separated)
+    #[arg(short('x'), long, value_delimiter = ',', default_values_t = [
+        "c".to_string(),
+        "cc".to_string(),
+        "cpp".to_string(),
+        "cxx".to_string(),
+        "c++".to_string(),
+        "h".to_string(),
+        "hh".to_string(),
+        "hpp".to_string(),
+        "hxx".to_string(),
+        "h++".to_string(),
+        "inl".to_string()]
+    )]
+    file_extensions: Vec<String>,
+
     /// Name of compiler executable
     #[arg(short('c'), long, name = "EXE", default_value = "cl.exe")]
     compiler_executable: String,
@@ -79,6 +95,7 @@ fn find_all_files(
     entry_tx: Sender<PathBuf>,
     error_tx: Sender<String>,
     exclude_directories: &[String],
+    file_extensions: &[String],
 ) {
     while let Ok(path) = directory_rx
         .recv_timeout(std::time::Duration::from_millis(RECV_TIMEOUT_MS))
@@ -123,19 +140,9 @@ fn find_all_files(
                 // Only process C/C++ source and header files
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     let ext_lower = ext.to_lowercase();
-                    if matches!(
-                        ext_lower.as_str(),
-                        "c" | "cc"
-                            | "cpp"
-                            | "cxx"
-                            | "c++"
-                            | "h"
-                            | "hh"
-                            | "hpp"
-                            | "hxx"
-                            | "h++"
-                            | "inl"
-                    ) {
+                    if file_extensions.iter().any(|allowed_ext| {
+                        allowed_ext.to_lowercase() == ext_lower
+                    }) {
                         // Normalize the path
                         if let Some(path) = path
                             .to_str()
@@ -188,16 +195,14 @@ fn build_file_map(
 
 /// Helper function to check if a line ends with a C/C++ source file extension
 /// (possibly followed by quotes, spaces, or other whitespace)
-fn ends_with_cpp_source_file(line: &str) -> bool {
+fn ends_with_cpp_source_file(line: &str, file_extensions: &[String]) -> bool {
     let line = line.trim_end(); // Remove trailing whitespace
     let line = line.trim_end_matches(['"', '\'']); // Remove trailing quotes
 
     // Check for C/C++ source file extensions
-    line.ends_with(".c")
-        || line.ends_with(".cc")
-        || line.ends_with(".cpp")
-        || line.ends_with(".cxx")
-        || line.ends_with(".c++")
+    file_extensions
+        .iter()
+        .any(|ext| line.to_lowercase().ends_with(&ext.to_lowercase()))
 }
 
 /// Searches an `msbuild.log` for all lines containing `s` string and sends
@@ -207,6 +212,7 @@ fn find_all_lines(
     s: &str,
     tx: Sender<String>,
     e_tx: Sender<String>,
+    file_extensions: &[String],
 ) {
     // Pre-lowercase the compiler executable for comparison
     let compiler_exe_lower = s.to_lowercase();
@@ -234,7 +240,7 @@ fn find_all_lines(
             }
 
             // Is this a complete compile command (cl.exe ... file.cpp)?
-            if ends_with_cpp_source_file(&lowercase) {
+            if ends_with_cpp_source_file(&lowercase, file_extensions) {
                 let _ = tx.send(line);
                 continue;
             }
@@ -251,7 +257,7 @@ fn find_all_lines(
             compile_command.push_str(&line);
 
             // Is this the end of the command (... file.cpp)?
-            if ends_with_cpp_source_file(&lowercase) {
+            if ends_with_cpp_source_file(&lowercase, file_extensions) {
                 let _ = tx.send(compile_command);
 
                 // Reset state
@@ -575,6 +581,7 @@ fn main() {
         let error_tx = error_tx.clone();
         let entry_tx = entry_tx.clone();
         let exclude_directories = cli.exclude_directories.clone();
+        let file_extensions = cli.file_extensions.clone();
 
         let handle = thread::spawn(move || {
             find_all_files(
@@ -583,6 +590,7 @@ fn main() {
                 entry_tx,
                 error_tx,
                 &exclude_directories,
+                &file_extensions,
             );
         });
 
@@ -657,12 +665,14 @@ fn main() {
 
     // Collect all the compile commands from the input file
     let e_tx = error_tx.clone();
+    let file_extensions = cli.file_extensions.clone();
     thread::spawn(move || {
         find_all_lines(
             input_file_handle,
             &cli.compiler_executable,
             source_tx,
             e_tx,
+            &file_extensions,
         );
     });
 

@@ -1,7 +1,6 @@
 use clap::Parser;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use dashmap::DashMap;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{to_writer, to_writer_pretty};
 use std::fs::{File, read_dir};
@@ -179,6 +178,19 @@ fn build_file_map(
     }
 }
 
+/// Helper function to check if a line ends with a C/C++ source file extension
+/// (possibly followed by quotes, spaces, or other whitespace)
+fn ends_with_cpp_source_file(line: &str) -> bool {
+    let line = line.trim_end(); // Remove trailing whitespace
+    let line = line.trim_end_matches(['"', '\'']); // Remove trailing quotes
+    
+    // Check for C/C++ source file extensions
+    line.ends_with(".c") || 
+    line.ends_with(".cc") || 
+    line.ends_with(".cpp") || 
+    line.ends_with(".cxx")
+}
+
 /// Searches an `msbuild.log` for all lines containing `s` string and sends
 /// them out on the `tx` channel. Any errors are reported on the `e_tx` channel.
 fn find_all_lines(
@@ -187,17 +199,6 @@ fn find_all_lines(
     tx: Sender<String>,
     e_tx: Sender<String>,
 ) {
-    // More specific regex pattern for C/C++ source files
-    const PATTERN: &str = r#"\.(?:c|cc|cpp|cxx)(?:"|'|\s)*$"#;
-    let re = match Regex::new(PATTERN) {
-        Ok(re) => re,
-        Err(e) => {
-            let e = format!("Error creating regular expression {PATTERN}: {e}");
-            let _ = e_tx.send(e);
-            return;
-        }
-    };
-
     // Pre-lowercase the compiler executable for comparison
     let compiler_exe_lower = s.to_lowercase();
 
@@ -224,7 +225,7 @@ fn find_all_lines(
             }
 
             // Is this a complete compile command (cl.exe ... file.cpp)?
-            if re.is_match(&lowercase) {
+            if ends_with_cpp_source_file(&lowercase) {
                 let _ = tx.send(line);
                 continue;
             }
@@ -241,7 +242,7 @@ fn find_all_lines(
             compile_command.push_str(&line);
 
             // Is this the end of the command (... file.cpp)?
-            if re.is_match(&lowercase) {
+            if ends_with_cpp_source_file(&lowercase) {
                 let _ = tx.send(compile_command);
 
                 // Reset state

@@ -50,6 +50,10 @@ struct Cli {
     #[arg(short('d'), long)]
     source_directory: PathBuf,
 
+    /// Directories to exclude during traversal
+    #[arg(short('e'), long, default_values_t = [".git".to_string()])]
+    exclude_directories: Vec<String>,
+
     /// Name of compiler executable
     #[arg(short('c'), long, name = "EXE", default_value = "cl.exe")]
     compiler_executable: String,
@@ -74,6 +78,7 @@ fn find_all_files(
     directory_tx: Sender<PathBuf>,
     entry_tx: Sender<PathBuf>,
     error_tx: Sender<String>,
+    exclude_directories: &[String],
 ) {
     while let Ok(path) = directory_rx
         .recv_timeout(std::time::Duration::from_millis(RECV_TIMEOUT_MS))
@@ -98,12 +103,15 @@ fn find_all_files(
 
             let path = entry.path();
             if path.is_dir() {
-                // Skip common build/temporary directories to speed up traversal
+                // Skip directories specified in exclude list
                 if let Some(dir_name) =
                     path.file_name().and_then(|n| n.to_str())
                 {
                     let dir_name_lower = dir_name.to_lowercase();
-                    if matches!(dir_name_lower.as_str(), ".git") {
+                    if exclude_directories
+                        .iter()
+                        .any(|exclude| exclude.to_lowercase() == dir_name_lower)
+                    {
                         continue;
                     }
                 }
@@ -566,9 +574,16 @@ fn main() {
         let directory_tx = directory_tx.clone();
         let error_tx = error_tx.clone();
         let entry_tx = entry_tx.clone();
+        let exclude_directories = cli.exclude_directories.clone();
 
         let handle = thread::spawn(move || {
-            find_all_files(directory_rx, directory_tx, entry_tx, error_tx);
+            find_all_files(
+                directory_rx,
+                directory_tx,
+                entry_tx,
+                error_tx,
+                &exclude_directories,
+            );
         });
 
         directory_handles.push(handle);

@@ -70,14 +70,26 @@ Tool to generate a compile_commands.json database from an msbuild.log file.
 Usage: ms2cc.exe [OPTIONS] --input-file <INPUT_FILE> --source-directory <SOURCE_DIRECTORY>
 
 Options:
-  -i, --input-file <INPUT_FILE>              Path to msbuild.log
-  -o, --output-file <OUTPUT_FILE>            Output JSON file [default: compile_commands.json]
-  -p, --pretty-print                         Pretty print output JSON file
-  -d, --source-directory <SOURCE_DIRECTORY>  Path to source code
-  -c, --compiler-executable <EXE>            Name of compiler executable [default: cl.exe]
-  -t, --max-threads <MAX_THREADS>            Max number of threads per task [default: 8]
-  -h, --help                                 Print help
-  -V, --version                              Print version
+  -i, --input-file <INPUT_FILE>
+          Path to msbuild.log
+  -o, --output-file <OUTPUT_FILE>
+          Output JSON file [default: compile_commands.json]
+  -d, --source-directory <SOURCE_DIRECTORY>
+          Path to source code
+  -x, --exclude-directories <EXCLUDE_DIRECTORIES>
+          Directories to exclude during traversal [default: .git]
+  -k, --file-extensions <FILE_EXTENSIONS>
+          File extensions to process (comma-separated) [default: c cc cpp cxx c++ h hh hpp hxx h++ inl]
+  -c, --compiler-executable <EXE>
+          Name of compiler executable [default: cl.exe]
+  -p, --pretty-print
+          Pretty print output JSON file
+  -t, --max-threads <MAX_THREADS>
+          Max number of threads per task [default: 8]
+  -h, --help
+          Print help
+  -V, --version
+          Print version
 ```
 
 ### When to Regenerate the Database
@@ -136,7 +148,7 @@ CompileFlags:
 
 ## Known Issues
 
-**Handling Duplicate Source File Names with Relative Paths**
+### Handling Duplicate Source File Names with Relative Paths
 
 In some cases, multiple source files in a project may share the same name, and
 the associated compile commands might not include absolute file paths. Since
@@ -154,7 +166,7 @@ Contributions are welcome. Simply open a PR!
 
 For questions or comments, please start a [discussion on github].
 
-[^1]: https://clang.llvm.org/docs/JSONCompilationDatabase.html
+[^1]: <https://clang.llvm.org/docs/JSONCompilationDatabase.html>
 
 [clangd]: https://clangd.llvm.org/
 [clangd configuration]: https://clangd.llvm.org/config

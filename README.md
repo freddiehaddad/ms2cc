@@ -74,16 +74,16 @@ Options:
           Path to msbuild.log
   -o, --output-file <OUTPUT_FILE>
           Output JSON file [default: compile_commands.json]
+  -p, --pretty-print
+          Pretty print output JSON file
   -d, --source-directory <SOURCE_DIRECTORY>
           Path to source code
   -x, --exclude-directories <EXCLUDE_DIRECTORIES>
-          Directories to exclude during traversal [default: .git]
+          Directories to exclude during traversal (comma-separated) [default: .git]
   -e, --file-extensions <FILE_EXTENSIONS>
           File extensions to process (comma-separated) [default: c cc cpp cxx c++ h hh hpp hxx h++ inl]
   -c, --compiler-executable <EXE>
           Name of compiler executable [default: cl.exe]
-  -p, --pretty-print
-          Pretty print output JSON file
   -t, --max-threads <MAX_THREADS>
           Max number of threads per task [default: 8]
   -h, --help

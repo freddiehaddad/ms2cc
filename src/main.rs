@@ -51,11 +51,11 @@ struct Cli {
     source_directory: PathBuf,
 
     /// Directories to exclude during traversal
-    #[arg(short('e'), long, default_values_t = [".git".to_string()])]
+    #[arg(short('x'), long, default_values_t = [".git".to_string()])]
     exclude_directories: Vec<String>,
 
     /// File extensions to process (comma-separated)
-    #[arg(short('x'), long, value_delimiter = ',', default_values_t = [
+    #[arg(short('e'), long, value_delimiter = ',', default_values_t = [
         "c".to_string(),
         "cc".to_string(),
         "cpp".to_string(),

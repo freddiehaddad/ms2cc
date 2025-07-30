@@ -78,7 +78,7 @@ Options:
           Path to source code
   -x, --exclude-directories <EXCLUDE_DIRECTORIES>
           Directories to exclude during traversal [default: .git]
-  -k, --file-extensions <FILE_EXTENSIONS>
+  -e, --file-extensions <FILE_EXTENSIONS>
           File extensions to process (comma-separated) [default: c cc cpp cxx c++ h hh hpp hxx h++ inl]
   -c, --compiler-executable <EXE>
           Name of compiler executable [default: cl.exe]

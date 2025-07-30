@@ -183,12 +183,13 @@ fn build_file_map(
 fn ends_with_cpp_source_file(line: &str) -> bool {
     let line = line.trim_end(); // Remove trailing whitespace
     let line = line.trim_end_matches(['"', '\'']); // Remove trailing quotes
-    
+
     // Check for C/C++ source file extensions
-    line.ends_with(".c") || 
-    line.ends_with(".cc") || 
-    line.ends_with(".cpp") || 
-    line.ends_with(".cxx")
+    line.ends_with(".c")
+        || line.ends_with(".cc")
+        || line.ends_with(".cpp")
+        || line.ends_with(".cxx")
+        || line.ends_with(".c++")
 }
 
 /// Searches an `msbuild.log` for all lines containing `s` string and sends

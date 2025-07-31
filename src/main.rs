@@ -1,7 +1,7 @@
 use clap::Parser;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
+use ms2cc::CompileCommand;
 use serde_json::{to_writer, to_writer_pretty};
 use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader, BufWriter};
@@ -18,14 +18,6 @@ const TOKEN_CAPACITY_DIVISOR: usize = 8; // Rough estimate for token capacity
 const DEFAULT_MAX_THREADS: u8 = 8; // Default number of threads per task
 const EXIT_FAILURE: i32 = -1; // Exit code for failure
 const HEADER_WIDTH: usize = 50; // Width for centered header text
-
-/// compile_commands.json entry descriptor
-#[derive(Deserialize, Serialize)]
-struct CompileCommand {
-    file: PathBuf,
-    directory: PathBuf,
-    arguments: Vec<String>,
-}
 
 /// Command line arguments
 #[derive(Parser)]

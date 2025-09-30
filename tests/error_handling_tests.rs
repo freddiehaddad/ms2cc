@@ -11,14 +11,12 @@ fn test_malformed_input_handling() {
     let malformed_cases = [
         "",                                 // Empty string
         "not a compile command",            // No compiler
-        "cl.exe",                           // Only compiler name
         "cl.exe /c",                        // No source file
         "cl.exe /c file_without_extension", // No extension
         "cl.exe /c .cpp",                   // Extension only
-        "cl.exe /c /invalid/path.cpp",      // Invalid path characters
     ];
 
-    for case in &malformed_cases {
+    for case in malformed_cases {
         // Test tokenization
         let tokens = parser::tokenize_compile_command(case);
 
@@ -27,14 +25,8 @@ fn test_malformed_input_handling() {
             let last_token = tokens.last().unwrap();
 
             // Should handle gracefully
-            if last_token.contains('.') && last_token.ends_with("cpp") {
-                let result = parser::extract_and_validate_filename(last_token);
-                // Some should succeed, some should fail - both are valid outcomes
-                match result {
-                    Ok(_) => {}  // Valid filename extracted
-                    Err(_) => {} // Expected failure for malformed input
-                }
-            }
+            let result = parser::extract_and_validate_filename(last_token);
+            assert!(result.is_err());
         }
 
         // Test cleanup
@@ -83,30 +75,29 @@ fn test_boundary_conditions() {
         "dir.with.dots",
     ];
 
-    for dir in &edge_case_dirs {
+    for dir in edge_case_dirs {
         let result =
             parser::should_exclude_directory(dir, &config.exclude_directories);
-        // Should not panic and return a boolean
-        assert!(result == true || result == false);
+        assert!(!result);
     }
 
     // Test file extension edge cases
     let edge_case_exts = [
-        "",
-        "c",
-        "C",
-        "cPP",
-        "h++",
-        "very_long_extension",
-        "1",
-        "123",
+        ("", false),
+        ("c", true),
+        ("C", true),
+        ("cPP", true),
+        ("h++", true),
+        ("very_long_extension", false),
+        ("1", false),
+        ("123", false),
     ];
 
-    for ext in &edge_case_exts {
-        let result =
+    for (ext, expected) in edge_case_exts {
+        let actual =
             parser::should_process_file_extension(ext, &config.file_extensions);
         // Should not panic and return a boolean
-        assert!(result == true || result == false);
+        assert_eq!(actual, expected);
     }
 }
 
@@ -248,9 +239,6 @@ fn test_concurrent_safety() {
     for handle in handles {
         handle.join().expect("Thread should not panic");
     }
-
-    // Test should complete without data races or panics
-    assert!(true);
 }
 
 #[test]

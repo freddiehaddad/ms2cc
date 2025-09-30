@@ -20,10 +20,10 @@ fn test_msbuild_log_parsing_realistic() {
         "Copyright (C) Microsoft Corporation. All rights reserved."
     )
     .unwrap();
-    writeln!(file, "").unwrap();
+    writeln!(file).unwrap();
     writeln!(file, "  cl.exe /c /Zi /nologo /W3 /WX- /diagnostics:column /Od /Ob0 /D WIN32 /D _WINDOWS /D _DEBUG /D _UNICODE /D UNICODE /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo\"Debug\\\\\" /Fd\"Debug\\\\vc143.pdb\" /external:W3 /Gd /TP /analyze- /errorReport:prompt main.cpp").unwrap();
     writeln!(file, "  main.cpp").unwrap();
-    writeln!(file, "").unwrap();
+    writeln!(file).unwrap();
     writeln!(
         file,
         "  cl.exe /c /Zi /nologo /W3 /WX- /diagnostics:column /Od /Ob0 /D WIN32"
@@ -32,7 +32,7 @@ fn test_msbuild_log_parsing_realistic() {
     writeln!(file, "  /D _WINDOWS /D _DEBUG /D _UNICODE /D UNICODE /Gm- /EHsc /RTC1 /MDd /GS").unwrap();
     writeln!(file, "  /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo\"Debug\\\\\" utils.cpp").unwrap();
     writeln!(file, "  utils.cpp").unwrap();
-    writeln!(file, "").unwrap();
+    writeln!(file).unwrap();
     writeln!(file, "Build succeeded.").unwrap();
     writeln!(file, "    0 Warning(s)").unwrap();
     writeln!(file, "    0 Error(s)").unwrap();
@@ -117,24 +117,23 @@ fn test_large_directory_simulation() {
             if path.is_dir() {
                 if let Some(dir_name) =
                     path.file_name().and_then(|n| n.to_str())
-                {
-                    if !parser::should_exclude_directory(
+                    && !parser::should_exclude_directory(
                         dir_name,
                         &config.exclude_directories,
-                    ) {
-                        visit_directory(&path, config, processed, skipped);
-                    }
+                    )
+                {
+                    visit_directory(&path, config, processed, skipped);
                 }
-            } else if path.is_file() {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if parser::should_process_file_extension(
-                        ext,
-                        &config.file_extensions,
-                    ) {
-                        *processed += 1;
-                    } else {
-                        *skipped += 1;
-                    }
+            } else if path.is_file()
+                && let Some(ext) = path.extension().and_then(|e| e.to_str())
+            {
+                if parser::should_process_file_extension(
+                    ext,
+                    &config.file_extensions,
+                ) {
+                    *processed += 1;
+                } else {
+                    *skipped += 1;
                 }
             }
         }
@@ -388,9 +387,6 @@ fn test_concurrent_access_patterns() {
             handle.join().unwrap();
         }
     });
-
-    // Test should complete without panics
-    assert!(true);
 }
 
 #[test]

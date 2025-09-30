@@ -34,9 +34,9 @@ fn test_file_filtering_in_real_directory() {
         let entry = entry.unwrap();
         let path = entry.path();
 
-        if path.is_file() {
-            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if parser::should_process_file_extension(
+        if path.is_file()
+            && let Some(ext) = path.extension().and_then(|e| e.to_str())
+                && parser::should_process_file_extension(
                     ext,
                     &config.file_extensions,
                 ) {
@@ -44,8 +44,6 @@ fn test_file_filtering_in_real_directory() {
                         path.file_name().unwrap().to_string_lossy().to_string(),
                     );
                 }
-            }
-        }
     }
 
     // Should process C/C++ files but not others
@@ -84,16 +82,14 @@ fn test_directory_exclusion_in_real_filesystem() {
         let entry = entry.unwrap();
         let path = entry.path();
 
-        if path.is_dir() {
-            if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
-                if !parser::should_exclude_directory(
+        if path.is_dir()
+            && let Some(dir_name) = path.file_name().and_then(|n| n.to_str())
+                && !parser::should_exclude_directory(
                     dir_name,
                     &config.exclude_directories,
                 ) {
                     processed_dirs.push(dir_name.to_string());
                 }
-            }
-        }
     }
 
     // Should exclude .git but not others (with default config)

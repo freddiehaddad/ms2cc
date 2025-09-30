@@ -502,14 +502,13 @@ fn main() {
     };
 
     // Early validation: check if input file is empty
-    if let Ok(metadata) = std::fs::metadata(&cli.input_file) {
-        if metadata.len() == 0 {
+    if let Ok(metadata) = std::fs::metadata(&cli.input_file)
+        && metadata.len() == 0 {
             exit_with_message(format!(
                 "Input file {:?} is empty",
                 cli.input_file
             ));
         }
-    }
 
     // Verify source directory is a valid path
     if !cli.source_directory.is_dir() {
@@ -520,14 +519,13 @@ fn main() {
     }
 
     // Quick check if source directory is likely to be empty or contain relevant files
-    if let Ok(mut entries) = std::fs::read_dir(&cli.source_directory) {
-        if entries.next().is_none() {
+    if let Ok(mut entries) = std::fs::read_dir(&cli.source_directory)
+        && entries.next().is_none() {
             exit_with_message(format!(
                 "Source directory {:?} appears to be empty",
                 cli.source_directory
             ));
         }
-    }
 
     // File writer with buffer for better performance
     let output_file_handle = match File::options()

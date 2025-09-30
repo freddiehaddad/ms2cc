@@ -345,6 +345,82 @@ fn is_source_file_argument(arg: &str) -> bool {
         .is_some()
 }
 
+/// Resolves the absolute path to a source file using previously indexed
+/// directory information and, if needed, the `/Fo` argument provided by MSVC
+/// compile commands. Any failures are reported via `error_tx` and result in
+/// `None`.
+fn resolve_source_path(
+    map: &DashMap<PathBuf, PathBuf>,
+    arguments: &[String],
+    file_argument: &str,
+) -> Result<PathBuf, String> {
+    // Convert to PathBuf and lowercase for processing
+    let arg_path_buf = PathBuf::from(file_argument.to_lowercase());
+    let file_name = match arg_path_buf.file_name() {
+        Some(file_name) => PathBuf::from(file_name),
+        None => {
+            let e = format!("Missing file_name component in {file_argument:?}");
+            return Err(e);
+        }
+    };
+
+    let mut path = if arg_path_buf.is_absolute() {
+        // We have an absolute path, done.
+        arg_path_buf.clone()
+    } else if let Some(parent) = map.get(&file_name) {
+        // We have a map entry for the absolute path, done.
+        let mut parent_path = parent.clone();
+        parent_path.push(&file_name);
+        parent_path
+    } else {
+        // Attempt to construct later.
+        PathBuf::new()
+    };
+
+    // Last option is trying to reconstruct the path using the /Fo argument.
+    if !path.is_absolute() {
+        const ARGUMENT: &str = "/Fo";
+        if let Some(fo_argument) =
+            arguments.iter().find(|s| s.starts_with(ARGUMENT))
+        {
+            if let Some(stripped) = fo_argument.strip_prefix(ARGUMENT) {
+                path = PathBuf::from(stripped.to_lowercase());
+
+                while path.has_root() {
+                    let mut test_path = path.clone();
+                    test_path.push(&file_name);
+                    if test_path.is_file() {
+                        path = test_path;
+                        break;
+                    }
+
+                    test_path.pop();
+                    test_path.push(&arg_path_buf);
+                    if test_path.is_file() {
+                        path = test_path;
+                        break;
+                    }
+
+                    path.pop();
+                    if !path.pop() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            let e = format!("No {ARGUMENT} argument found in {arguments:?}");
+            return Err(e);
+        }
+    }
+
+    if !path.is_absolute() || !path.is_file() {
+        let e = format!("Failed to retreive an absolute path to {file_name:?}");
+        return Err(e);
+    }
+
+    Ok(path)
+}
+
 /// Converts a stream of tokens received on the `rx` channel into a
 /// `CompileCommand` and sends it out on the `tx` channel. The `map` generated
 /// by `build_file_map` is used to find the paths to any source files that did
@@ -379,97 +455,21 @@ fn create_compile_commands(
         }
 
         for file in trailing_files {
-            // Convert to PathBuf and lowercase for processing
-            let arg_path_buf = PathBuf::from(file.to_lowercase());
-            let file_name = match arg_path_buf.file_name() {
-                Some(file_name) => PathBuf::from(file_name),
-                None => {
-                    let e =
-                        format!("Missing filename component in {arguments:?}");
+            match resolve_source_path(&map, &arguments, &file) {
+                Err(e) => {
                     let _ = error_tx.send(e);
                     continue;
                 }
-            };
-
-            // If we only have a filename or relative path, try to reconstruct an
-            // absolute path.
-
-            // First we check our directory tree
-            let mut path = PathBuf::new();
-            if !arg_path_buf.is_absolute() {
-                if let Some(parent) = map.get(&file_name) {
-                    path = parent.clone();
-                    path.push(&file_name);
-                };
-            } else {
-                path = arg_path_buf.clone();
-            }
-
-            // Last option is trying to reconstruct the path using the /Fo argument.
-            if !path.is_absolute() {
-                const ARGUMENT: &str = "/Fo";
-                if let Some(fo_argument) =
-                    arguments.iter().find(|s| s.starts_with(ARGUMENT))
-                {
-                    path = PathBuf::from(
-                        fo_argument
-                            .strip_prefix(ARGUMENT)
-                            .unwrap()
-                            .to_lowercase(),
-                    );
-
-                    while path.has_root() {
-                        // Test using /Fo path and the filename from the argument.
-                        let mut test_path = path.clone();
-                        test_path.push(&file_name);
-
-                        // Did we find the path?
-                        if test_path.is_file() {
-                            path = test_path;
-                            break;
-                        }
-
-                        // Let's try with the relative path in the argument.
-                        test_path.pop();
-                        test_path.push(&arg_path_buf);
-
-                        // Did we find the path?
-                        if test_path.is_file() {
-                            path = test_path;
-                            break;
-                        }
-
-                        path.pop();
-
-                        // Reached the end?
-                        if !path.pop() {
-                            break;
-                        }
+                Ok(path) => {
+                    // Found the path
+                    if let Some(cc) = create_compile_command(
+                        path,
+                        arguments.clone(),
+                        error_tx.clone(),
+                    ) {
+                        let _ = tx.send(cc);
                     }
-                } else {
-                    let e = format!(
-                        "No {ARGUMENT} argument found in {arguments:?}"
-                    );
-                    let _ = error_tx.send(e);
-                    continue;
                 }
-            }
-
-            if !path.is_absolute() || !path.is_file() {
-                let e = format!(
-                    "Failed to retreive an absolute path to {file_name:?}"
-                );
-                let _ = error_tx.send(e);
-                continue;
-            }
-
-            // Found the path
-            if let Some(cc) = create_compile_command(
-                path,
-                arguments.clone(),
-                error_tx.clone(),
-            ) {
-                let _ = tx.send(cc);
             }
         }
     }
@@ -503,12 +503,10 @@ fn main() {
 
     // Early validation: check if input file is empty
     if let Ok(metadata) = std::fs::metadata(&cli.input_file)
-        && metadata.len() == 0 {
-            exit_with_message(format!(
-                "Input file {:?} is empty",
-                cli.input_file
-            ));
-        }
+        && metadata.len() == 0
+    {
+        exit_with_message(format!("Input file {:?} is empty", cli.input_file));
+    }
 
     // Verify source directory is a valid path
     if !cli.source_directory.is_dir() {
@@ -520,12 +518,13 @@ fn main() {
 
     // Quick check if source directory is likely to be empty or contain relevant files
     if let Ok(mut entries) = std::fs::read_dir(&cli.source_directory)
-        && entries.next().is_none() {
-            exit_with_message(format!(
-                "Source directory {:?} appears to be empty",
-                cli.source_directory
-            ));
-        }
+        && entries.next().is_none()
+    {
+        exit_with_message(format!(
+            "Source directory {:?} appears to be empty",
+            cli.source_directory
+        ));
+    }
 
     // File writer with buffer for better performance
     let output_file_handle = match File::options()

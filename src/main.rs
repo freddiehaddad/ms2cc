@@ -334,6 +334,17 @@ fn create_compile_command(
     })
 }
 
+/// Determines whether a command-line argument represents a potential source
+/// file by checking for a filename component with an extension after lower-
+/// casing it for case-insensitive comparison.
+fn is_source_file_argument(arg: &str) -> bool {
+    let arg_path = PathBuf::from(arg);
+    arg_path
+        .file_name()
+        .and_then(|_| arg_path.extension())
+        .is_some()
+}
+
 /// Converts a stream of tokens received on the `rx` channel into a
 /// `CompileCommand` and sends it out on the `tx` channel. The `map` generated
 /// by `build_file_map` is used to find the paths to any source files that did
@@ -346,109 +357,110 @@ fn create_compile_commands(
     error_tx: Sender<String>,
 ) {
     while let Ok(arguments) = rx.recv() {
-        // The file name should be the last compiler argument
-        let arg_path = match arguments.last() {
-            Some(path) => path,
-            None => {
-                let e = String::from("Token vector is empty!");
-                let _ = error_tx.send(e);
-                continue;
-            }
-        };
-
-        // Convert to PathBuf and lowercase for processing
-        let arg_path_buf = PathBuf::from(arg_path.to_lowercase());
-
-        // Is the last argument in the compile command a file?
-        let file_name = match arg_path_buf.file_name() {
-            Some(file_name) => PathBuf::from(file_name),
-            None => {
-                let e = format!("Missing file_name component in {arg_path:?}");
-                let _ = error_tx.send(e);
-                continue;
-            }
-        };
-
-        // Does it have an extension?
-        if file_name.extension().is_none() {
-            let e =
-                format!("File name component missing extension {arg_path:?}");
+        if arguments.is_empty() {
+            let e = String::from("Token vector is empty!");
             let _ = error_tx.send(e);
             continue;
         }
 
-        // If we only have a file name or relative path, try to reconstruct an
-        // absolute path.
+        // A separate compile command must be created for each named file.
+        let mut trailing_files: Vec<String> = arguments
+            .iter()
+            .rev()
+            .take_while(|arg| is_source_file_argument(arg))
+            .cloned()
+            .collect();
+        trailing_files.reverse();
 
-        // First we check our directory tree
-        let mut path = PathBuf::new();
-        if !arg_path_buf.is_absolute() {
-            if let Some(parent) = map.get(&file_name) {
-                path = parent.clone();
-                path.push(&file_name);
-            };
-        } else {
-            path = arg_path_buf.clone();
+        if trailing_files.is_empty() {
+            let e = format!("Missing filename component in {arguments:?}");
+            let _ = error_tx.send(e);
+            continue;
         }
 
-        // Last option is trying to reconstruct the path using the /Fo argument.
-        if !path.is_absolute() {
-            const ARGUMENT: &str = "/Fo";
-            if let Some(fo_argument) =
-                arguments.iter().find(|s| s.starts_with(ARGUMENT))
-            {
-                path = PathBuf::from(
-                    fo_argument.strip_prefix(ARGUMENT).unwrap().to_lowercase(),
-                );
-
-                while path.has_root() {
-                    // Test using /Fo path and the filename from the argument.
-                    let mut test_path = path.clone();
-                    test_path.push(&file_name);
-
-                    // Did we find the path?
-                    if test_path.is_file() {
-                        path = test_path;
-                        break;
-                    }
-
-                    // Let's try with the relative path in the argument.
-                    test_path.pop();
-                    test_path.push(&arg_path_buf);
-
-                    // Did we find the path?
-                    if test_path.is_file() {
-                        path = test_path;
-                        break;
-                    }
-
-                    path.pop();
-
-                    // Reached the end?
-                    if !path.pop() {
-                        break;
-                    }
+        for file in trailing_files {
+            // Convert to PathBuf and lowercase for processing
+            let arg_path_buf = PathBuf::from(file.to_lowercase());
+            let file_name = match arg_path_buf.file_name() {
+                Some(file_name) => PathBuf::from(file_name),
+                None => {
+                    let e = format!("Missing filename component in {arguments:?}");
+                    let _ = error_tx.send(e);
+                    continue;
                 }
+            };
+
+            // If we only have a filename or relative path, try to reconstruct an
+            // absolute path.
+
+            // First we check our directory tree
+            let mut path = PathBuf::new();
+            if !arg_path_buf.is_absolute() {
+                if let Some(parent) = map.get(&file_name) {
+                    path = parent.clone();
+                    path.push(&file_name);
+                };
             } else {
+                path = arg_path_buf.clone();
+            }
+
+            // Last option is trying to reconstruct the path using the /Fo argument.
+            if !path.is_absolute() {
+                const ARGUMENT: &str = "/Fo";
+                if let Some(fo_argument) =
+                    arguments.iter().find(|s| s.starts_with(ARGUMENT)) {
+                        path = PathBuf::from(fo_argument.strip_prefix(ARGUMENT).unwrap().to_lowercase(),
+                    );
+
+                    while path.has_root() {
+                        // Test using /Fo path and the filename from the argument.
+                        let mut test_path = path.clone();
+                        test_path.push(&file_name);
+
+                        // Did we find the path?
+                        if test_path.is_file() {
+                            path = test_path;
+                            break;
+                        }
+
+                        // Let's try with the relative path in the argument.
+                        test_path.pop();
+                        test_path.push(&arg_path_buf);
+
+                        // Did we find the path?
+                        if test_path.is_file() {
+                            path = test_path;
+                            break;
+                        }
+
+                        path.pop();
+
+                        // Reached the end?
+                        if !path.pop() {
+                            break;
+                        }
+                    }
+                } else {
+                    let e =
+                        format!("No {ARGUMENT} argument found in {arguments:?}");
+                    let _ = error_tx.send(e);
+                    continue;
+                }
+            }
+
+            if !path.is_absolute() || !path.is_file() {
                 let e =
-                    format!("No {ARGUMENT} argument found in {arguments:?}");
+                    format!("Failed to retreive an absolute path to {file_name:?}");
                 let _ = error_tx.send(e);
                 continue;
             }
-        }
 
-        if !path.is_absolute() || !path.is_file() {
-            let e =
-                format!("Failed to retreive an absolute path to {file_name:?}");
-            let _ = error_tx.send(e);
-            continue;
-        }
-
-        // Found the path
-        if let Some(cc) =
-            create_compile_command(path, arguments, error_tx.clone())
-        {
-            let _ = tx.send(cc);
+            // Found the path
+            if let Some(cc) =
+                create_compile_command(path, arguments.clone(), error_tx.clone())
+            {
+                let _ = tx.send(cc);
+            }
         }
     }
 }
@@ -747,4 +759,74 @@ fn main() {
     );
     println!();
     println!("==================================================");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_compile_commands;
+    use crossbeam_channel::unbounded;
+    use dashmap::DashMap;
+    use ms2cc::CompileCommand;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    #[test]
+    fn create_compile_commands_processes_multiple_trailing_files() {
+        let temp_dir = TempDir::new().expect("create temp dir");
+        let source_dir = temp_dir.path();
+        let files = ["main.cpp", "foo.cpp", "bar.cpp"];
+
+        for file in &files {
+            let path = source_dir.join(file);
+            let mut handle = File::create(&path).expect("create source file");
+            writeln!(handle, "fn test() -> () {{ () }}").unwrap();
+        }
+
+        let map = Arc::new(DashMap::new());
+        for file in &files {
+            map.insert(PathBuf::from(file), source_dir.to_path_buf());
+        }
+
+        let (token_tx, token_rx) = unbounded();
+        let (compile_tx, compile_rx) = unbounded();
+        let (error_tx, error_rx) = unbounded();
+
+        let map_clone = Arc::clone(&map);
+        let handle = std::thread::spawn(move || {
+            create_compile_commands(map_clone, token_rx, compile_tx, error_tx);
+        });
+
+        let mut command = vec![
+            "cl.exe".to_string(),
+            "/c".to_string(),
+            "/DDEBUG".to_string(),
+        ];
+        command.extend(files.iter().map(|file| file.to_string()));
+
+        token_tx.send(command).unwrap();
+        drop(token_tx);
+
+        handle.join().unwrap();
+
+        let results: Vec<CompileCommand> = compile_rx.try_iter().collect();
+        assert_eq!(results.len(), files.len());
+
+        let mut expected = vec![
+            "cl.exe".to_string(),
+            "/c".to_string(),
+            "/DDEBUG".to_string(),
+        ];
+        expected.extend(files.iter().map(|file| file.to_string()));
+
+        for (cc, file) in results.iter().zip(files.iter()) {
+            assert_eq!(cc.arguments.len(), expected.len());
+            assert_eq!(cc.arguments, expected);
+            assert_eq!(cc.directory, source_dir);
+            assert_eq!(cc.file.to_str().unwrap(), *file);
+        }
+        assert!(error_rx.try_recv().is_err(), "Unexpected errors reported");
+    }
 }

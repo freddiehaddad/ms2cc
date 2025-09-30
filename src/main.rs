@@ -197,6 +197,20 @@ fn ends_with_cpp_source_file(line: &str, file_extensions: &[String]) -> bool {
         .any(|ext| line.to_lowercase().ends_with(&ext.to_lowercase()))
 }
 
+/// Returns the first executable name (with `.exe` suffix) found in the log line,
+/// trimming surrounding path separators or quotes. Used to ignore wrapper tools
+/// such as `tracker.exe` when searching for compiler invocations.
+fn first_executable_name(line: &str) -> Option<String> {
+    line.match_indices(".exe").next().map(|(idx, _)| {
+        let prefix = &line[..=idx + 3]; // include ".exe"
+        let start = prefix
+            .rfind(['\\', '/', ' ', '\t', '"', '\'', '('])
+            .map(|pos| pos + 1)
+            .unwrap_or(0);
+        prefix[start..].trim_matches(['"', '\'']).to_string()
+    })
+}
+
 /// Searches an `msbuild.log` for all lines containing `s` string and sends
 /// them out on the `tx` channel. Any errors are reported on the `e_tx` channel.
 fn find_all_lines(
@@ -224,10 +238,14 @@ fn find_all_lines(
         // Convert to lowercase for simplified pattern matching
         let lowercase = line.to_lowercase();
 
+        let Some(executable) = first_executable_name(&lowercase) else {
+            continue;
+        };
+
         // Check our state
         if !multi_line {
             // Skip non compile command lines
-            if !lowercase.contains(&compiler_exe_lower) {
+            if executable != compiler_exe_lower {
                 continue;
             }
 

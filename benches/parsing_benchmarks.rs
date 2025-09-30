@@ -73,7 +73,8 @@ fn bench_tokenize_compile_command(c: &mut Criterion) {
     let test_commands = vec![
         "cl.exe /c main.cpp",
         "cl.exe /c /Zi /nologo /W3 /GR /EHsc /bigobj /DWIN32 /D_WINDOWS main.cpp",
-        "gcc -c -O2 -Wall -Wextra -std=c++17 -I./include -I./external/include main.cpp",
+        r#""C:\Program Files\cl.exe" /c /I"C:\Path With Spaces" "source file.cpp""#,
+        r#"cl.exe "/D\"VALUE\"" "" "C:\path with spaces\file.cpp""#,
     ];
 
     c.bench_function("tokenize_compile_command", |b| {
@@ -85,30 +86,11 @@ fn bench_tokenize_compile_command(c: &mut Criterion) {
     });
 }
 
-fn bench_cleanup_line(c: &mut Criterion) {
-    let test_lines = vec![
-        "simple line without quotes",
-        "\"line with quotes\"",
-        "\"multiple\" \"quoted\" \"sections\"",
-        "mixed \"quoted and\" unquoted sections",
-        "\"C:\\Program Files\\Microsoft Visual Studio\\VC\\bin\\cl.exe\" /c \"main.cpp\"",
-    ];
-
-    c.bench_function("cleanup_line", |b| {
-        b.iter(|| {
-            for line in &test_lines {
-                black_box(parser::cleanup_line(black_box(line)));
-            }
-        })
-    });
-}
-
 criterion_group!(
     benches,
     bench_ends_with_cpp_source_file,
     bench_should_exclude_directory,
     bench_should_process_file_extension,
-    bench_tokenize_compile_command,
-    bench_cleanup_line
+    bench_tokenize_compile_command
 );
 criterion_main!(benches);

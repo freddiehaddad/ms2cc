@@ -47,7 +47,10 @@ pub mod parser {
 
     /// Helper function to check if a line ends with a C/C++ source file extension
     /// (possibly followed by quotes, spaces, or other whitespace)
-    pub fn ends_with_cpp_source_file(line: &str, file_extensions: &[String]) -> bool {
+    pub fn ends_with_cpp_source_file(
+        line: &str,
+        file_extensions: &[String],
+    ) -> bool {
         let line = line.trim_end(); // Remove trailing whitespace
         let line = line.trim_end_matches(['"', '\'']); // Remove trailing quotes
 
@@ -58,7 +61,10 @@ pub mod parser {
     }
 
     /// Check if a directory should be excluded
-    pub fn should_exclude_directory(dir_name: &str, exclude_directories: &[String]) -> bool {
+    pub fn should_exclude_directory(
+        dir_name: &str,
+        exclude_directories: &[String],
+    ) -> bool {
         let dir_name_lower = dir_name.to_lowercase();
         exclude_directories
             .iter()
@@ -66,7 +72,10 @@ pub mod parser {
     }
 
     /// Check if a file extension should be processed
-    pub fn should_process_file_extension(ext: &str, file_extensions: &[String]) -> bool {
+    pub fn should_process_file_extension(
+        ext: &str,
+        file_extensions: &[String],
+    ) -> bool {
         let ext_lower = ext.to_lowercase();
         file_extensions
             .iter()
@@ -88,19 +97,23 @@ pub mod parser {
     }
 
     /// Extract file name and validate it has an extension
-    pub fn extract_and_validate_filename(arg_path: &str) -> Result<PathBuf, String> {
+    pub fn extract_and_validate_filename(
+        arg_path: &str,
+    ) -> Result<PathBuf, String> {
         let arg_path_buf = PathBuf::from(arg_path.to_lowercase());
-        
-        let file_name = arg_path_buf
-            .file_name()
-            .ok_or_else(|| format!("Missing file_name component in {arg_path:?}"))?;
-        
+
+        let file_name = arg_path_buf.file_name().ok_or_else(|| {
+            format!("Missing file_name component in {arg_path:?}")
+        })?;
+
         let file_name = PathBuf::from(file_name);
-        
+
         if file_name.extension().is_none() {
-            return Err(format!("File name component missing extension {arg_path:?}"));
+            return Err(format!(
+                "File name component missing extension {arg_path:?}"
+            ));
         }
-        
+
         Ok(file_name)
     }
 }
@@ -119,9 +132,9 @@ pub mod compile_commands {
             .ok_or_else(|| format!("Missing parent component in {:?}", path))?
             .to_path_buf();
 
-        let file = path
-            .file_name()
-            .ok_or_else(|| format!("Missing file_name component in {:?}", path))?;
+        let file = path.file_name().ok_or_else(|| {
+            format!("Missing file_name component in {:?}", path)
+        })?;
         let file = PathBuf::from(file);
 
         Ok(CompileCommand {
@@ -156,20 +169,30 @@ mod tests {
 
         #[test]
         fn test_ends_with_cpp_source_file() {
-            let extensions = vec!["cpp".to_string(), "c".to_string(), "h".to_string()];
-            
+            let extensions =
+                vec!["cpp".to_string(), "c".to_string(), "h".to_string()];
+
             assert!(parser::ends_with_cpp_source_file("file.cpp", &extensions));
-            assert!(parser::ends_with_cpp_source_file("file.cpp\"", &extensions));
-            assert!(parser::ends_with_cpp_source_file("  file.cpp  ", &extensions));
+            assert!(parser::ends_with_cpp_source_file(
+                "file.cpp\"",
+                &extensions
+            ));
+            assert!(parser::ends_with_cpp_source_file(
+                "  file.cpp  ",
+                &extensions
+            ));
             assert!(parser::ends_with_cpp_source_file("FILE.CPP", &extensions));
-            assert!(!parser::ends_with_cpp_source_file("file.txt", &extensions));
+            assert!(!parser::ends_with_cpp_source_file(
+                "file.txt",
+                &extensions
+            ));
             assert!(!parser::ends_with_cpp_source_file("file", &extensions));
         }
 
         #[test]
         fn test_should_exclude_directory() {
             let excludes = vec![".git".to_string(), "target".to_string()];
-            
+
             assert!(parser::should_exclude_directory(".git", &excludes));
             assert!(parser::should_exclude_directory(".GIT", &excludes));
             assert!(parser::should_exclude_directory("target", &excludes));
@@ -179,7 +202,7 @@ mod tests {
         #[test]
         fn test_should_process_file_extension() {
             let extensions = vec!["cpp".to_string(), "h".to_string()];
-            
+
             assert!(parser::should_process_file_extension("cpp", &extensions));
             assert!(parser::should_process_file_extension("CPP", &extensions));
             assert!(parser::should_process_file_extension("h", &extensions));
@@ -203,7 +226,9 @@ mod tests {
         #[test]
         fn test_extract_and_validate_filename() {
             assert!(parser::extract_and_validate_filename("file.cpp").is_ok());
-            assert!(parser::extract_and_validate_filename("path/file.cpp").is_ok());
+            assert!(
+                parser::extract_and_validate_filename("path/file.cpp").is_ok()
+            );
             assert!(parser::extract_and_validate_filename("file").is_err());
             assert!(parser::extract_and_validate_filename("").is_err());
         }
@@ -215,11 +240,16 @@ mod tests {
         #[test]
         fn test_create_compile_command() {
             let path = PathBuf::from("C:/projects/src/file.cpp");
-            let args = vec!["cl.exe".to_string(), "/c".to_string(), "file.cpp".to_string()];
-            
-            let result = compile_commands::create_compile_command(path, args.clone());
+            let args = vec![
+                "cl.exe".to_string(),
+                "/c".to_string(),
+                "file.cpp".to_string(),
+            ];
+
+            let result =
+                compile_commands::create_compile_command(path, args.clone());
             assert!(result.is_ok());
-            
+
             let cmd = result.unwrap();
             assert_eq!(cmd.file, PathBuf::from("file.cpp"));
             assert_eq!(cmd.directory, PathBuf::from("C:/projects/src"));
@@ -233,10 +263,10 @@ mod tests {
                 "/FoDebug/".to_string(),
                 "file.cpp".to_string(),
             ];
-            
+
             let fo_arg = compile_commands::find_fo_argument(&args);
             assert_eq!(fo_arg, Some(&"/FoDebug/".to_string()));
-            
+
             let args_no_fo = vec!["cl.exe".to_string(), "file.cpp".to_string()];
             assert!(compile_commands::find_fo_argument(&args_no_fo).is_none());
         }
@@ -246,7 +276,7 @@ mod tests {
             let result = compile_commands::extract_fo_path("/FoDebug/obj/");
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), PathBuf::from("debug/obj/"));
-            
+
             let invalid = compile_commands::extract_fo_path("invalid");
             assert!(invalid.is_err());
         }

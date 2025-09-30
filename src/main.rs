@@ -384,7 +384,8 @@ fn create_compile_commands(
             let file_name = match arg_path_buf.file_name() {
                 Some(file_name) => PathBuf::from(file_name),
                 None => {
-                    let e = format!("Missing filename component in {arguments:?}");
+                    let e =
+                        format!("Missing filename component in {arguments:?}");
                     let _ = error_tx.send(e);
                     continue;
                 }
@@ -408,8 +409,13 @@ fn create_compile_commands(
             if !path.is_absolute() {
                 const ARGUMENT: &str = "/Fo";
                 if let Some(fo_argument) =
-                    arguments.iter().find(|s| s.starts_with(ARGUMENT)) {
-                        path = PathBuf::from(fo_argument.strip_prefix(ARGUMENT).unwrap().to_lowercase(),
+                    arguments.iter().find(|s| s.starts_with(ARGUMENT))
+                {
+                    path = PathBuf::from(
+                        fo_argument
+                            .strip_prefix(ARGUMENT)
+                            .unwrap()
+                            .to_lowercase(),
                     );
 
                     while path.has_root() {
@@ -441,24 +447,28 @@ fn create_compile_commands(
                         }
                     }
                 } else {
-                    let e =
-                        format!("No {ARGUMENT} argument found in {arguments:?}");
+                    let e = format!(
+                        "No {ARGUMENT} argument found in {arguments:?}"
+                    );
                     let _ = error_tx.send(e);
                     continue;
                 }
             }
 
             if !path.is_absolute() || !path.is_file() {
-                let e =
-                    format!("Failed to retreive an absolute path to {file_name:?}");
+                let e = format!(
+                    "Failed to retreive an absolute path to {file_name:?}"
+                );
                 let _ = error_tx.send(e);
                 continue;
             }
 
             // Found the path
-            if let Some(cc) =
-                create_compile_command(path, arguments.clone(), error_tx.clone())
-            {
+            if let Some(cc) = create_compile_command(
+                path,
+                arguments.clone(),
+                error_tx.clone(),
+            ) {
                 let _ = tx.send(cc);
             }
         }

@@ -1,19 +1,19 @@
 // benches/parsing_benchmarks.rs - Performance benchmarks for ms2cc
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use ms2cc::{parser, Config};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use ms2cc::{Config, parser};
 
 fn bench_ends_with_cpp_source_file(c: &mut Criterion) {
     let config = Config::default();
     let test_lines = vec![
         "cl.exe /c /Zi /nologo main.cpp",
-        "cl.exe /c /Zi /nologo header.h", 
+        "cl.exe /c /Zi /nologo header.h",
         "cl.exe /c /Zi /nologo utils.cxx",
         "cl.exe /c /Zi /nologo \"quoted_file.cpp\"",
         "cl.exe /c /Zi /nologo file_without_extension",
         "very long compile command with many arguments /DWIN32 /D_WINDOWS /W3 /GR /EHsc /bigobj source.cpp",
     ];
-    
+
     c.bench_function("ends_with_cpp_source_file", |b| {
         b.iter(|| {
             for line in &test_lines {
@@ -29,9 +29,16 @@ fn bench_ends_with_cpp_source_file(c: &mut Criterion) {
 fn bench_should_exclude_directory(c: &mut Criterion) {
     let config = Config::default();
     let test_dirs = vec![
-        ".git", "src", "include", "target", "build", ".vscode", "node_modules", "vendor"
+        ".git",
+        "src",
+        "include",
+        "target",
+        "build",
+        ".vscode",
+        "node_modules",
+        "vendor",
     ];
-    
+
     c.bench_function("should_exclude_directory", |b| {
         b.iter(|| {
             for dir in &test_dirs {
@@ -47,9 +54,9 @@ fn bench_should_exclude_directory(c: &mut Criterion) {
 fn bench_should_process_file_extension(c: &mut Criterion) {
     let config = Config::default();
     let test_extensions = vec![
-        "cpp", "c", "h", "hpp", "cxx", "cc", "txt", "rs", "py", "js", "java"
+        "cpp", "c", "h", "hpp", "cxx", "cc", "txt", "rs", "py", "js", "java",
     ];
-    
+
     c.bench_function("should_process_file_extension", |b| {
         b.iter(|| {
             for ext in &test_extensions {
@@ -68,7 +75,7 @@ fn bench_tokenize_compile_command(c: &mut Criterion) {
         "cl.exe /c /Zi /nologo /W3 /GR /EHsc /bigobj /DWIN32 /D_WINDOWS main.cpp",
         "gcc -c -O2 -Wall -Wextra -std=c++17 -I./include -I./external/include main.cpp",
     ];
-    
+
     c.bench_function("tokenize_compile_command", |b| {
         b.iter(|| {
             for cmd in &test_commands {
@@ -81,12 +88,12 @@ fn bench_tokenize_compile_command(c: &mut Criterion) {
 fn bench_cleanup_line(c: &mut Criterion) {
     let test_lines = vec![
         "simple line without quotes",
-        "\"line with quotes\"", 
+        "\"line with quotes\"",
         "\"multiple\" \"quoted\" \"sections\"",
         "mixed \"quoted and\" unquoted sections",
         "\"C:\\Program Files\\Microsoft Visual Studio\\VC\\bin\\cl.exe\" /c \"main.cpp\"",
     ];
-    
+
     c.bench_function("cleanup_line", |b| {
         b.iter(|| {
             for line in &test_lines {

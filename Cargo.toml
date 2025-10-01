@@ -4,15 +4,15 @@ version = "1.2.0"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5.42", features = ["derive", "string"] }
+clap = { version = "4.5.48", features = ["derive", "string"] }
 crossbeam-channel = "0.5.15"
 dashmap = "6.1.0"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.141"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 
 [dev-dependencies]
-tempfile = "3.8"
-criterion = "0.5"
+tempfile = "3.23.0"
+criterion = "0.7.0"
 
 [[bench]]
 name = "parsing_benchmarks"

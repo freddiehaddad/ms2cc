@@ -1,7 +1,8 @@
 // benches/parsing_benchmarks.rs - Performance benchmarks for ms2cc
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use ms2cc::{Config, parser};
+use std::hint::black_box;
 
 fn bench_ends_with_cpp_source_file(c: &mut Criterion) {
     let config = Config::default();

@@ -1,11 +1,18 @@
+//! Binary entry point that wires together filesystem traversal, log parsing,
+//! and compile command generation for ms2cc.
+
 use clap::Parser;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use dashmap::DashMap;
-use ms2cc::{CompileCommand, parser};
+use ms2cc::{
+    CompileCommand, IndexedPath, Ms2ccError, compile_commands, parser,
+};
 use serde_json::{to_writer, to_writer_pretty};
+use std::ffi::{OsStr, OsString};
 use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader, BufWriter};
-use std::path::PathBuf;
+use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use std::{process, thread};
@@ -14,7 +21,7 @@ use std::{process, thread};
 const DEFAULT_BUFFER_SIZE: usize = 64 * 1024; // 64KB buffer for file I/O
 const RECV_TIMEOUT_MS: u64 = 500; // Timeout for channel receive operations
 const MULTILINE_RESERVE_SIZE: usize = 512; // Pre-allocation for multi-line commands
-const DEFAULT_MAX_THREADS: u8 = 8; // Default number of threads per task
+const DEFAULT_MAX_THREADS: usize = 8; // Default number of threads per task
 const EXIT_FAILURE: i32 = -1; // Exit code for failure
 const HEADER_WIDTH: usize = 50; // Width for centered header text
 
@@ -66,12 +73,16 @@ struct Cli {
     compiler_executable: String,
 
     /// Max number of threads per task
-    #[arg(short('t'), long, default_value_t = DEFAULT_MAX_THREADS)]
-    max_threads: u8,
+    #[arg(
+        short('t'),
+        long,
+        default_value_t = NonZeroUsize::new(DEFAULT_MAX_THREADS).unwrap()
+    )]
+    max_threads: NonZeroUsize,
 }
 
 /// Error handler.  Reports any received errors to `STDERR`.
-fn error_handler(error_rx: Receiver<String>) {
+fn error_handler(error_rx: Receiver<Ms2ccError>) {
     while let Ok(e) = error_rx.recv() {
         eprintln!("{e}");
     }
@@ -84,7 +95,7 @@ fn find_all_files(
     directory_rx: Receiver<PathBuf>,
     directory_tx: Sender<PathBuf>,
     entry_tx: Sender<PathBuf>,
-    error_tx: Sender<String>,
+    error_tx: Sender<Ms2ccError>,
     exclude_directories: &[String],
     file_extensions: &[String],
 ) {
@@ -94,8 +105,10 @@ fn find_all_files(
         let reader = match read_dir(&path) {
             Ok(r) => r,
             Err(e) => {
-                let e = format!("read_dir error for {path:?}: {e}");
-                let _ = error_tx.send(e);
+                let error = Ms2ccError::io_error(e, path.clone());
+                if error_tx.send(error).is_err() {
+                    return;
+                }
                 continue;
             }
         };
@@ -103,8 +116,10 @@ fn find_all_files(
             let entry = match entry {
                 Ok(de) => de,
                 Err(e) => {
-                    let e = format!("Failed to read from {path:?}: {e}",);
-                    let _ = error_tx.send(e);
+                    let error = Ms2ccError::io_error(e, path.clone());
+                    if error_tx.send(error).is_err() {
+                        return;
+                    }
                     continue;
                 }
             };
@@ -123,7 +138,9 @@ fn find_all_files(
                         continue;
                     }
                 }
-                let _ = directory_tx.send(path);
+                if directory_tx.send(path).is_err() {
+                    return;
+                }
                 continue;
             }
 
@@ -140,18 +157,26 @@ fn find_all_files(
                             .map(|s| s.to_lowercase())
                             .map(PathBuf::from)
                         {
-                            let _ = entry_tx.send(path);
+                            if entry_tx.send(path).is_err() {
+                                return;
+                            }
                         } else {
-                            let e = format!("Failed to normalize {path:?}");
-                            let _ = error_tx.send(e);
+                            let error = Ms2ccError::PathNormalization {
+                                path: path.clone(),
+                            };
+                            if error_tx.send(error).is_err() {
+                                return;
+                            }
                         }
                     }
                 }
                 continue;
             }
 
-            let e = format!("Unknown entry {path:?}");
-            let _ = error_tx.send(e);
+            let error = Ms2ccError::UnexpectedEntry { path };
+            if error_tx.send(error).is_err() {
+                return;
+            }
         }
     }
 }
@@ -163,7 +188,7 @@ fn find_all_files(
 /// NOTE: All paths are expected to be lowercase.
 fn build_file_map(
     entry_rx: Receiver<PathBuf>,
-    tree: Arc<DashMap<PathBuf, PathBuf>>,
+    tree: Arc<DashMap<PathBuf, IndexedPath>>,
 ) {
     // Generate a map of files and their directories
     while let Ok(path) =
@@ -178,22 +203,10 @@ fn build_file_map(
 
             // Add KV pair (file/path) to the hash table; clear on collision
             tree.entry(file_name)
-                .and_modify(|absolute_path: &mut PathBuf| absolute_path.clear())
-                .or_insert(parent);
+                .and_modify(|entry| entry.mark_conflict())
+                .or_insert(IndexedPath::unique(parent));
         }
     }
-}
-
-/// Helper function to check if a line ends with a C/C++ source file extension
-/// (possibly followed by quotes, spaces, or other whitespace)
-fn ends_with_cpp_source_file(line: &str, file_extensions: &[String]) -> bool {
-    let line = line.trim_end(); // Remove trailing whitespace
-    let line = line.trim_end_matches(['"', '\'']); // Remove trailing quotes
-
-    // Check for C/C++ source file extensions
-    file_extensions
-        .iter()
-        .any(|ext| line.to_lowercase().ends_with(&ext.to_lowercase()))
 }
 
 /// Returns the first executable name (with `.exe` suffix) found in the log line,
@@ -210,17 +223,19 @@ fn first_executable_name(line: &str) -> Option<String> {
     })
 }
 
-/// Searches an `msbuild.log` for all lines containing `s` string and sends
-/// them out on the `tx` channel. Any errors are reported on the `e_tx` channel.
+/// Searches an `msbuild.log` for all lines containing `compiler_executable`
+/// and sends them out on the `tx` channel. Any errors are reported on the
+/// `e_tx` channel.
 fn find_all_lines(
     reader: BufReader<File>,
-    s: &str,
+    log_path: &Path,
+    compiler_executable: &str,
     tx: Sender<String>,
-    e_tx: Sender<String>,
+    e_tx: Sender<Ms2ccError>,
     file_extensions: &[String],
 ) {
     // Pre-lowercase the compiler executable for comparison
-    let compiler_exe_lower = s.to_lowercase();
+    let compiler_exe_lower = compiler_executable.to_lowercase();
 
     let mut compile_command = String::new();
     let mut multi_line = false;
@@ -228,8 +243,13 @@ fn find_all_lines(
         let line = match line {
             Ok(line) => line,
             Err(e) => {
-                let e = format!("Skipping a read error in log file: {e}");
-                let _ = e_tx.send(e);
+                let error = Ms2ccError::LogRead {
+                    source: e,
+                    path: log_path.to_path_buf(),
+                };
+                if e_tx.send(error).is_err() {
+                    return;
+                }
                 continue;
             }
         };
@@ -249,8 +269,10 @@ fn find_all_lines(
             }
 
             // Is this a complete compile command (cl.exe ... file.cpp)?
-            if ends_with_cpp_source_file(&lowercase, file_extensions) {
-                let _ = tx.send(line);
+            if parser::ends_with_cpp_source_file(&line, file_extensions) {
+                if tx.send(line).is_err() {
+                    return;
+                }
                 continue;
             }
 
@@ -260,37 +282,40 @@ fn find_all_lines(
             // Pre-allocate space for multi-line commands to reduce reallocations
             compile_command.reserve(MULTILINE_RESERVE_SIZE);
             continue;
-        } else {
-            // Append to the previous line with space separator
-            compile_command.push(' ');
-            compile_command.push_str(&line);
+        }
 
-            // Is this the end of the command (... file.cpp)?
-            if ends_with_cpp_source_file(&lowercase, file_extensions) {
-                let _ = tx.send(compile_command);
+        // Append to the previous line with space separator
+        compile_command.push(' ');
+        compile_command.push_str(&line);
 
-                // Reset state
-                compile_command = String::new();
-                multi_line = false;
-                continue;
+        // Is this the end of the command (... file.cpp)?
+        if parser::ends_with_cpp_source_file(&line, file_extensions) {
+            let command = std::mem::take(&mut compile_command);
+            if tx.send(command).is_err() {
+                return;
             }
 
-            // This should be part of the line (... /Zi /EHsc ...), but let's
-            // make sure.
-            if lowercase.contains(&compiler_exe_lower) {
-                // We encountered a new line containing cl.exe before completing
-                // the previous compile command. We'll log an error, reset the
-                // state and continue.
-                let e = format!(
-                    "Unexpected line {} while building the compile command {}",
-                    line, compile_command
-                );
-                let _ = e_tx.send(e);
+            multi_line = false;
+            continue;
+        }
 
-                // Reset state
-                compile_command = String::new();
-                multi_line = false;
+        // This should be part of the line (... /Zi /EHsc ...), but let's
+        // make sure.
+        if lowercase.contains(&compiler_exe_lower) {
+            // We encountered a new line containing cl.exe before completing
+            // the previous compile command. We'll log an error, reset the
+            // state and continue.
+            let error = Ms2ccError::UnexpectedLine {
+                line: line.clone(),
+                current: compile_command.clone(),
+            };
+            if e_tx.send(error).is_err() {
+                return;
             }
+
+            // Reset state
+            compile_command.clear();
+            multi_line = false;
         }
     }
 }
@@ -300,51 +325,18 @@ fn find_all_lines(
 fn tokenize_lines(rx: Receiver<String>, tx: Sender<Vec<String>>) {
     while let Ok(s) = rx.recv() {
         let tokens = parser::tokenize_compile_command(&s);
-        let _ = tx.send(tokens);
+        if tx.send(tokens).is_err() {
+            break;
+        }
     }
-}
-
-/// When a compile command in the log file uses an absolute path to the source file, all required
-/// components exist to generate a `CompileCommand`.
-fn create_compile_command(
-    path: PathBuf,
-    arguments: Vec<String>,
-    error_tx: Sender<String>,
-) -> Option<CompileCommand> {
-    let directory = match path.parent() {
-        Some(parent) => PathBuf::from(parent),
-        None => {
-            let e = format!("Missing parent component in {:?}", path);
-            let _ = error_tx.send(e);
-            return None;
-        }
-    };
-
-    let file = match path.file_name() {
-        Some(file_name) => PathBuf::from(file_name),
-        None => {
-            let e = format!("Missing file_name component in {:?}", path);
-            let _ = error_tx.send(e);
-            return None;
-        }
-    };
-
-    Some(CompileCommand {
-        file,
-        directory,
-        arguments,
-    })
 }
 
 /// Determines whether a command-line argument represents a potential source
 /// file by checking for a filename component with an extension after lower-
 /// casing it for case-insensitive comparison.
-fn is_source_file_argument(arg: &str) -> bool {
-    let arg_path = PathBuf::from(arg);
-    arg_path
-        .file_name()
-        .and_then(|_| arg_path.extension())
-        .is_some()
+fn is_source_file_argument(arg: &OsString) -> bool {
+    let path = PathBuf::from(arg.clone());
+    parser::extract_and_validate_filename(path.as_path()).is_ok()
 }
 
 /// Resolves the absolute path to a source file using previously indexed
@@ -352,72 +344,78 @@ fn is_source_file_argument(arg: &str) -> bool {
 /// compile commands. Any failures are reported via `error_tx` and result in
 /// `None`.
 fn resolve_source_path(
-    map: &DashMap<PathBuf, PathBuf>,
-    arguments: &[String],
-    file_argument: &str,
-) -> Result<PathBuf, String> {
-    // Convert to PathBuf and lowercase for processing
-    let arg_path_buf = PathBuf::from(file_argument.to_lowercase());
-    let file_name = match arg_path_buf.file_name() {
-        Some(file_name) => PathBuf::from(file_name),
-        None => {
-            let e = format!("Missing file_name component in {file_argument:?}");
-            return Err(e);
-        }
-    };
+    map: &DashMap<PathBuf, IndexedPath>,
+    arguments: &[OsString],
+    file_argument: &OsStr,
+) -> Result<PathBuf, Ms2ccError> {
+    let arg_path_buf = PathBuf::from(file_argument);
+    let file_name =
+        parser::extract_and_validate_filename(arg_path_buf.as_path())?;
 
     let mut path = if arg_path_buf.is_absolute() {
-        // We have an absolute path, done.
+        // The log already provided an absolute path; use it directly.
         arg_path_buf.clone()
-    } else if let Some(parent) = map.get(&file_name) {
-        // We have a map entry for the absolute path, done.
-        let mut parent_path = parent.clone();
+    } else if let Some(parent) = map
+        .get(&file_name)
+        .and_then(|entry| entry.value().parent().cloned())
+    {
+        // Reconstruct the path using the indexed directory collected during
+        // traversal.
+        let mut parent_path = parent;
         parent_path.push(&file_name);
         parent_path
     } else {
-        // Attempt to construct later.
+        // Defer resolution until we inspect `/Fo` hints below.
         PathBuf::new()
     };
 
-    // Last option is trying to reconstruct the path using the /Fo argument.
     if !path.is_absolute() {
-        const ARGUMENT: &str = "/Fo";
-        if let Some(fo_argument) =
-            arguments.iter().find(|s| s.starts_with(ARGUMENT))
+        if let Some(fo_argument) = compile_commands::find_fo_argument(arguments)
         {
-            if let Some(stripped) = fo_argument.strip_prefix(ARGUMENT) {
-                path = PathBuf::from(stripped.to_lowercase());
+            let mut fo_path =
+                compile_commands::extract_fo_path(fo_argument.as_os_str())?;
 
-                while path.has_root() {
-                    let mut test_path = path.clone();
-                    test_path.push(&file_name);
-                    if test_path.is_file() {
-                        path = test_path;
-                        break;
-                    }
+            while fo_path.has_root() {
+                let mut test_path = fo_path.clone();
+                test_path.push(&file_name);
+                if test_path.is_file() {
+                    // `/Fo` points to a directory; append the file name to
+                    // get the final path.
+                    path = test_path;
+                    break;
+                }
 
-                    test_path.pop();
-                    test_path.push(&arg_path_buf);
-                    if test_path.is_file() {
-                        path = test_path;
-                        break;
-                    }
+                test_path.pop();
+                test_path.push(&arg_path_buf);
+                if test_path.is_file() {
+                    // Some compilers emit `/Fo<file>` values; reuse the
+                    // original argument so we can match that layout.
+                    path = test_path;
+                    break;
+                }
 
-                    path.pop();
-                    if !path.pop() {
-                        break;
-                    }
+                if !fo_path.pop() {
+                    break;
                 }
             }
+
+            if path.as_os_str().is_empty() {
+                // As a last resort fall back to the raw `/Fo` argument so the
+                // caller can surface an actionable error.
+                path = fo_path;
+            }
         } else {
-            let e = format!("No {ARGUMENT} argument found in {arguments:?}");
-            return Err(e);
+            return Err(Ms2ccError::MissingFoArgument {
+                arguments: arguments.to_vec(),
+            });
         }
     }
 
     if !path.is_absolute() || !path.is_file() {
-        let e = format!("Failed to retreive an absolute path to {file_name:?}");
-        return Err(e);
+        return Err(Ms2ccError::UnresolvedSourcePath {
+            file: file_name,
+            arguments: arguments.to_vec(),
+        });
     }
 
     Ok(path)
@@ -429,20 +427,24 @@ fn resolve_source_path(
 /// not include it in `msbuild.log`. Errors are reported on the `error_tx`
 /// channel
 fn create_compile_commands(
-    map: Arc<DashMap<PathBuf, PathBuf>>,
+    map: Arc<DashMap<PathBuf, IndexedPath>>,
     rx: Receiver<Vec<String>>,
     tx: Sender<CompileCommand>,
-    error_tx: Sender<String>,
+    error_tx: Sender<Ms2ccError>,
 ) {
     while let Ok(arguments) = rx.recv() {
         if arguments.is_empty() {
-            let e = String::from("Token vector is empty!");
-            let _ = error_tx.send(e);
+            if error_tx.send(Ms2ccError::EmptyTokenVector).is_err() {
+                return;
+            }
             continue;
         }
 
+        let arguments_os: Vec<OsString> =
+            arguments.into_iter().map(OsString::from).collect();
+
         // A separate compile command must be created for each named file.
-        let mut trailing_files: Vec<String> = arguments
+        let mut trailing_files: Vec<OsString> = arguments_os
             .iter()
             .rev()
             .take_while(|arg| is_source_file_argument(arg))
@@ -451,25 +453,39 @@ fn create_compile_commands(
         trailing_files.reverse();
 
         if trailing_files.is_empty() {
-            let e = format!("Missing filename component in {arguments:?}");
-            let _ = error_tx.send(e);
+            let error = Ms2ccError::MissingTrailingFile {
+                arguments: arguments_os.clone(),
+            };
+            if error_tx.send(error).is_err() {
+                return;
+            }
             continue;
         }
 
         for file in trailing_files {
-            match resolve_source_path(&map, &arguments, &file) {
-                Err(e) => {
-                    let _ = error_tx.send(e);
+            match resolve_source_path(&map, &arguments_os, file.as_os_str()) {
+                Err(err) => {
+                    if error_tx.send(err).is_err() {
+                        return;
+                    }
                     continue;
                 }
                 Ok(path) => {
                     // Found the path
-                    if let Some(cc) = create_compile_command(
+                    match compile_commands::create_compile_command(
                         path,
-                        arguments.clone(),
-                        error_tx.clone(),
+                        arguments_os.clone(),
                     ) {
-                        let _ = tx.send(cc);
+                        Ok(command) => {
+                            if tx.send(command).is_err() {
+                                return;
+                            }
+                        }
+                        Err(err) => {
+                            if error_tx.send(err).is_err() {
+                                return;
+                            }
+                        }
                     }
                 }
             }
@@ -483,6 +499,8 @@ fn exit_with_message(msg: String) -> ! {
     process::exit(EXIT_FAILURE);
 }
 
+// Orchestrates the CLI lifecycle: validate input, fan out worker threads, and
+// write the resulting `compile_commands.json` file.
 fn main() {
     //
     // Input validation
@@ -570,15 +588,15 @@ fn main() {
     println!();
     println!("Starting threads:");
     println!(" - 1 error handling thread");
-    println!(" - {} directory traversal threads", cli.max_threads);
-    println!(" - {} file processing threads", cli.max_threads);
+    println!(" - {} directory traversal threads", cli.max_threads.get());
+    println!(" - {} file processing threads", cli.max_threads.get());
     println!();
 
     let task_start_time = Instant::now();
-    let tree = Arc::new(DashMap::new());
+    let tree: Arc<DashMap<PathBuf, IndexedPath>> = Arc::new(DashMap::new());
     let (directory_tx, directory_rx) = unbounded();
     let (entry_tx, entry_rx) = unbounded();
-    let (error_tx, error_rx) = unbounded();
+    let (error_tx, error_rx) = unbounded::<Ms2ccError>();
 
     // Separate thread for error handling.
     thread::spawn(move || {
@@ -586,9 +604,13 @@ fn main() {
     });
 
     // Traverse the directory tree
-    let _ = directory_tx.send(cli.source_directory);
+    if directory_tx.send(cli.source_directory.clone()).is_err() {
+        exit_with_message(
+            "Failed to queue source directory for traversal".into(),
+        );
+    }
     let mut directory_handles = Vec::new();
-    for _ in 0..cli.max_threads {
+    for _ in 0..cli.max_threads.get() {
         let directory_rx = directory_rx.clone();
         let directory_tx = directory_tx.clone();
         let error_tx = error_tx.clone();
@@ -612,7 +634,7 @@ fn main() {
 
     // Process discovered files
     let mut entry_handles = Vec::new();
-    for _ in 0..cli.max_threads {
+    for _ in 0..cli.max_threads.get() {
         let entry_rx = entry_rx.clone();
         let tree = Arc::clone(&tree);
 
@@ -667,7 +689,7 @@ fn main() {
     let (source_tx, source_rx) = unbounded();
     let (token_tx, token_rx) = unbounded();
     let (compile_command_tx, compile_command_rx) = unbounded();
-    let (error_tx, error_rx) = unbounded();
+    let (error_tx, error_rx) = unbounded::<Ms2ccError>();
 
     // Separate thread for error handling.
     thread::spawn(move || {
@@ -677,10 +699,13 @@ fn main() {
     // Collect all the compile commands from the input file
     let e_tx = error_tx.clone();
     let file_extensions = cli.file_extensions.clone();
+    let compiler_executable = cli.compiler_executable.clone();
+    let log_path = cli.input_file.clone();
     thread::spawn(move || {
         find_all_lines(
             input_file_handle,
-            &cli.compiler_executable,
+            log_path.as_path(),
+            &compiler_executable,
             source_tx,
             e_tx,
             &file_extensions,
@@ -769,13 +794,14 @@ mod tests {
     use super::create_compile_commands;
     use crossbeam_channel::unbounded;
     use dashmap::DashMap;
-    use ms2cc::CompileCommand;
+    use ms2cc::{CompileCommand, IndexedPath, Ms2ccError};
     use std::fs::File;
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
 
+    // Ensures compile command generation clones commands for each trailing file.
     #[test]
     fn create_compile_commands_processes_multiple_trailing_files() {
         let temp_dir = TempDir::new().expect("create temp dir");
@@ -788,14 +814,17 @@ mod tests {
             writeln!(handle, "fn test() -> () {{ () }}").unwrap();
         }
 
-        let map = Arc::new(DashMap::new());
+        let map: Arc<DashMap<PathBuf, IndexedPath>> = Arc::new(DashMap::new());
         for file in &files {
-            map.insert(PathBuf::from(file), source_dir.to_path_buf());
+            map.insert(
+                PathBuf::from(file),
+                IndexedPath::unique(source_dir.to_path_buf()),
+            );
         }
 
         let (token_tx, token_rx) = unbounded();
         let (compile_tx, compile_rx) = unbounded();
-        let (error_tx, error_rx) = unbounded();
+        let (error_tx, error_rx) = unbounded::<Ms2ccError>();
 
         let map_clone = Arc::clone(&map);
         let handle = std::thread::spawn(move || {
@@ -826,7 +855,12 @@ mod tests {
 
         for (cc, file) in results.iter().zip(files.iter()) {
             assert_eq!(cc.arguments.len(), expected.len());
-            assert_eq!(cc.arguments, expected);
+            let arguments: Vec<String> = cc
+                .arguments
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(arguments, expected);
             assert_eq!(cc.directory, source_dir);
             assert_eq!(cc.file.to_str().unwrap(), *file);
         }

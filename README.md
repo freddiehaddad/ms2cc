@@ -1,21 +1,18 @@
 # MS2CC - MSBuild to Compile Commands
 
-A Rust CLI tool that uses `msbuild.log` files to generate a
-`compile_commands.json` compliant [^1] database for use with C/C++ language
-servers.
+A Rust CLI tool that uses `msbuild.log` files to generate a `compile_commands.json` compliant [^1] database for use with C/C++ language servers.
 
 ## Introduction
 
-This tool enables full IDE-like functionality for C/C++ Language Server Protocol
-([LSP]) compliant language servers that rely on a `compile_commands.json`
-database. It works by converting `msbuild.log` output files, generated when
-performing a full MSBuild project build, into a `compile_commands.json`
-database. Two such language servers are [clangd] and [Microsoft C/C++ Extension]
-for Visual Studio Code.
+This tool enables full IDE-like functionality for C/C++ Language Server Protocol ([LSP]) compliant language servers that rely on a `compile_commands.json` database. It works by converting `msbuild.log` output files, generated when performing a full MSBuild project build, into a `compile_commands.json` database. Two such language servers are [clangd] and [Microsoft C/C++ Extension] for Visual Studio Code.
 
-The `compile_commands.json` file is a database that lists all source files in
-your project along with the exact commands needed to compile each one. Each
-entry follows this structure:
+## Recent Improvements
+
+- **Path preservation.** The parser now keeps the original casing and non-UTF-8 contents of every path by leaning on `Path`/`OsStr` primitives instead of allocating lowercase `String` copies. This avoids mismatches on case-sensitive file systems and ensures the emitted `compile_commands.json` matches the on-disk layout.
+- **Structured diagnostics.** All failures surface as an `Ms2ccError` variant with the relevant context (e.g., missing `/Fo` arguments or unresolved filenames). The CLI renders these errors in a human-readable form so you can pinpoint the root cause quickly.
+- **Safer concurrency defaults.** Shared configuration is now reference-counted and `--max-threads` is validated as a non-zero value, preventing accidental deadlocks caused by spawning zero workers while still allowing the workload to scale across cores.
+
+The `compile_commands.json` file is a database that lists all source files in your project along with the exact commands needed to compile each one. Each entry follows this structure:
 
 ```json
 [
@@ -29,37 +26,29 @@ entry follows this structure:
 
 ## Installation
 
-There are two ways to obtain the `ms2cc.exe` binary: download a precompiled
-release or build it from source.
+There are two ways to obtain the `ms2cc.exe` binary: download a precompiled release or build it from source.
 
 ### Building from Source
 
-Since the tool was written in [Rust], the Rust development toolchain is required
-for compilation.
+Since the tool was written in [Rust], the Rust development toolchain is required for compilation.
 
-1. Prepare your environment by following the instructions on the
-   [Rust installation page].
+1. Prepare your environment by following the instructions on the [Rust installation page].
 1. Clone the repository.
-1. Build a debug release with `cargo build` or a release version with
-   `cargo build --release`.
-1. The generated executable will be under the `./target/debug/` or
-   `./target/release/` directory.
+1. Build a debug release with `cargo build` or a release version with `cargo build --release`.
+1. The generated executable will be under the `./target/debug/` or `./target/release/` directory.
 
 ## Generating the Database
 
 1. Complete a full build of your C/C++ MSBuild project.
-
 1. Run `ms2cc.exe`:
 
    ```console
    ms2cc.exe --input-file <PATH_TO_MSBUILD.LOG> --source-directory <PATH_TO_PROJECT_SOURCE>
    ```
 
-   This will create a `compile_commands.json` file in the same directory where
-   you ran `ms2cc.exe`.
+   This will create a `compile_commands.json` file in the same directory where you ran `ms2cc.exe`.
 
-   You can use the `--output-file` option to specify the name and location for
-   the database to be written.
+   You can use the `--output-file` option to specify the name and location for the database to be written.
 
 > **NOTE:** You can run `ms2cc.exe` with the `--help` option for more details.
 
@@ -101,8 +90,7 @@ Several conditions require regenerating the `compile_commands.json` database:
 
 ## Editor Configuration
 
-Configuring your editor to make use of the `compile_commands.json` database
-requires a few steps:
+Configuring your editor to make use of the `compile_commands.json` database requires a few steps:
 
 1. Install a C/C++ language server
 1. Configure your editor
@@ -110,11 +98,7 @@ requires a few steps:
 
 ### Visual Studio Code
 
-In VSCode, you can install the [Microsoft C/C++ Extension] to enable C/C++
-language support. Once installed, a `.vscode` directory will be created in your
-project folder, containing a `c_cpp_properties.json` file. The `configurations`
-key in this file holds an array of project-specific settings. For each relevant
-configuration, add the `compileCommands` property as shown below:
+In VSCode, you can install the [Microsoft C/C++ Extension] to enable C/C++ language support. Once installed, a `.vscode` directory will be created in your project folder, containing a `c_cpp_properties.json` file. The `configurations` key in this file holds an array of project-specific settings. For each relevant configuration, add the `compileCommands` property as shown below:
 
 ```json
 {
@@ -130,13 +114,7 @@ configuration, add the `compileCommands` property as shown below:
 
 ### Other Editors
 
-For most editors, [clangd] is likely the best choice. It automatically searches
-for a `compile_commands.json` file by traversing up the directory tree from the
-file you're editing, as well as checking any `build/` subdirectories. For
-instance, if you're editing `$SRC/gui/window.cpp,` clangd will look in
-`$SRC/gui/`, `$SRC/gui/build/`, `$SRC/`, `$SRC/build/`, and so on. You can also
-explicitly specify the path to the compilation database in your clangd
-configuration file:
+For most editors, [clangd] is likely the best choice. It automatically searches for a `compile_commands.json` file by traversing up the directory tree from the file you're editing, as well as checking any `build/` subdirectories. For instance, if you're editing `$SRC/gui/window.cpp,` clangd will look in `$SRC/gui/`, `$SRC/gui/build/`, `$SRC/`, `$SRC/build/`, and so on. You can also explicitly specify the path to the compilation database in your clangd configuration file:
 
 ```yaml
 CompileFlags:
@@ -146,17 +124,29 @@ CompileFlags:
 
 > **NOTE:** See the [clangd configuration] documentation for details.
 
+## Validation & Troubleshooting
+
+### Automated checks
+
+```powershell
+cargo fmt
+cargo test
+cargo bench
+```
+
+### Quick smoke test
+
+Point the CLI at a known `msbuild.log` and source directory to ensure end-to-end parsing still works. The command below writes the database to `compile_commands.json` while pretty-printing the JSON output:
+
+```powershell
+cargo run -- --input-file path\to\msbuild.log --source-directory path\to\src --pretty-print
+```
+
 ## Known Issues
 
 ### Handling Duplicate Source File Names with Relative Paths
 
-In some cases, multiple source files in a project may share the same name, and
-the associated compile commands might not include absolute file paths. Since
-absolute paths are required, the tool attempts to disambiguate these entries
-using the `/Fo` compiler flag (if present in the compile command), which
-specifies the output object file. However, if the object file path lies outside
-the directory of the corresponding source file, this method may fail. When that
-happens, an error message is logged.
+In some cases, multiple source files in a project may share the same name, and the associated compile commands might not include absolute file paths. Since absolute paths are required, the tool attempts to disambiguate these entries using the `/Fo` compiler flag (if present in the compile command), which specifies the output object file. However, if the object file path lies outside the directory of the corresponding source file, this method may fail. When that happens, an error message is logged.
 
 ## Contributing
 

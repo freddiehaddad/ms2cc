@@ -1,9 +1,12 @@
-// benches/parsing_benchmarks.rs - Performance benchmarks for ms2cc
+//! Criterion benchmarks that measure the hot parser helpers invoked while
+//! scanning MSBuild logs.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use ms2cc::{Config, parser};
+use std::ffi::OsStr;
 use std::hint::black_box;
 
+/// Measures performance of extension detection across representative log lines.
 fn bench_ends_with_cpp_source_file(c: &mut Criterion) {
     let config = Config::default();
     let test_lines = vec![
@@ -27,6 +30,7 @@ fn bench_ends_with_cpp_source_file(c: &mut Criterion) {
     });
 }
 
+/// Benchmarks directory exclusion checks for common project folders.
 fn bench_should_exclude_directory(c: &mut Criterion) {
     let config = Config::default();
     let test_dirs = vec![
@@ -44,7 +48,7 @@ fn bench_should_exclude_directory(c: &mut Criterion) {
         b.iter(|| {
             for dir in &test_dirs {
                 black_box(parser::should_exclude_directory(
-                    black_box(dir),
+                    black_box(OsStr::new(dir)),
                     black_box(&config.exclude_directories),
                 ));
             }
@@ -52,6 +56,7 @@ fn bench_should_exclude_directory(c: &mut Criterion) {
     });
 }
 
+/// Evaluates file extension filtering throughput while scanning directories.
 fn bench_should_process_file_extension(c: &mut Criterion) {
     let config = Config::default();
     let test_extensions = vec![
@@ -62,7 +67,7 @@ fn bench_should_process_file_extension(c: &mut Criterion) {
         b.iter(|| {
             for ext in &test_extensions {
                 black_box(parser::should_process_file_extension(
-                    black_box(ext),
+                    black_box(OsStr::new(ext)),
                     black_box(&config.file_extensions),
                 ));
             }
@@ -70,6 +75,7 @@ fn bench_should_process_file_extension(c: &mut Criterion) {
     });
 }
 
+/// Exercises the tokenizer on varied compile command shapes.
 fn bench_tokenize_compile_command(c: &mut Criterion) {
     let test_commands = vec![
         "cl.exe /c main.cpp",

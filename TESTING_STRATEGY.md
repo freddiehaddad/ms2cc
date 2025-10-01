@@ -2,7 +2,7 @@
 
 ## **Refactoring Summary**
 
-The ms2cc project has been refactored to enable comprehensive unit testing while maintaining the existing functionality. Here's what was accomplished:
+The ms2cc refactor emphasizes idiomatic Rust patterns while keeping the CLI stable. We now rely on structured errors, case-preserving path handling, and shared configuration primitives that make the system easier to reason about and test end to end.
 
 ## **1. Core Library Extraction (`src/lib.rs`)**
 
@@ -24,12 +24,12 @@ The ms2cc project has been refactored to enable comprehensive unit testing while
 
 - ✅ **Pure functions** - Easy to test with predictable inputs/outputs
 - ✅ **No side effects** - Functions don't depend on external state
-- ✅ **Error handling** - Functions return `Result<T, String>` for proper error testing
+- ✅ **Error handling** - Functions return `Result<T, Ms2ccError>` for structured diagnostics that tests can pattern-match without string parsing
 - ✅ **Configurability** - `Config` struct allows testing different configurations
 
 ## **2. Comprehensive Test Suite**
 
-### **Unit Tests (`src/lib.rs`)** - 9 tests
+### **Unit Tests (`src/lib.rs`)** - 20 tests
 
 - Parser function tests with edge cases
 - Compile command creation tests  
@@ -60,25 +60,28 @@ The ms2cc project has been refactored to enable comprehensive unit testing while
 
 ### **Run All Tests:**
 
-```bash
-cargo test                    # Run all tests
-cargo test -- --nocapture   # Run with output
-cargo test parser           # Run specific module tests
+```powershell
+cargo fmt
+cargo test
+```
+
+To stream output or scope to a module:
+
+```powershell
+cargo test -- --nocapture
+cargo test parser
 ```
 
 ### **Run Benchmarks:**
 
-```bash
-cargo bench                  # Run performance benchmarks
+```powershell
+cargo bench
 ```
 
 ### **Test Coverage:**
 
-```bash
-# Install tarpaulin for coverage
+```powershell
 cargo install cargo-tarpaulin
-
-# Generate coverage report
 cargo tarpaulin --out Html
 ```
 
@@ -179,3 +182,13 @@ fn write_output(commands: &[CompileCommand], output_path: &Path, pretty: bool) -
 - **Performance baselines** - Benchmarks establish performance expectations
 
 This refactoring maintains 100% compatibility with the existing CLI while making the codebase much more testable and maintainable.
+
+## **Manual Smoke Test**
+
+Before publishing a build, run the CLI against a representative `msbuild.log` and confirm it emits a populated `compile_commands.json`:
+
+```powershell
+cargo run -- --input-file path\to\msbuild.log --source-directory path\to\src --output-file path\to\compile_commands.json --pretty-print
+```
+
+The command surfaces any `Ms2ccError` diagnostics directly in the console, and the pretty-printed output makes it easy to spot path casing or argument issues.

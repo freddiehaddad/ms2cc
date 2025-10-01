@@ -1,10 +1,14 @@
-// tests/file_system_tests.rs - Tests for file system operations
+//! Integration-like tests that use temporary directories to validate filesystem
+//! traversal helpers.
 
 use ms2cc::{Config, parser};
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::path::Path;
 use tempfile::TempDir;
 
+/// Verifies extension filtering accepts only C/C++ files inside a real
+/// directory.
 #[test]
 fn test_file_filtering_in_real_directory() {
     let temp_dir = TempDir::new().unwrap();
@@ -35,7 +39,7 @@ fn test_file_filtering_in_real_directory() {
         let path = entry.path();
 
         if path.is_file()
-            && let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && let Some(ext) = path.extension()
             && parser::should_process_file_extension(
                 ext,
                 &config.file_extensions,
@@ -56,6 +60,7 @@ fn test_file_filtering_in_real_directory() {
     assert!(!processed_files.contains(&"script.py".to_string()));
 }
 
+/// Confirms default configuration excludes only the expected directories.
 #[test]
 fn test_directory_exclusion_in_real_filesystem() {
     let temp_dir = TempDir::new().unwrap();
@@ -83,13 +88,13 @@ fn test_directory_exclusion_in_real_filesystem() {
         let path = entry.path();
 
         if path.is_dir()
-            && let Some(dir_name) = path.file_name().and_then(|n| n.to_str())
+            && let Some(dir_name) = path.file_name()
             && !parser::should_exclude_directory(
                 dir_name,
                 &config.exclude_directories,
             )
         {
-            processed_dirs.push(dir_name.to_string());
+            processed_dirs.push(dir_name.to_string_lossy().into_owned());
         }
     }
 
@@ -102,6 +107,8 @@ fn test_directory_exclusion_in_real_filesystem() {
     assert!(processed_dirs.contains(&".vscode".to_string()));
 }
 
+/// Checks that nested directory structures remain traversable and extensions
+/// are still recognized.
 #[test]
 fn test_nested_directory_structure() {
     let temp_dir = TempDir::new().unwrap();
@@ -124,32 +131,28 @@ fn test_nested_directory_structure() {
 
     // Test file extension processing
     assert!(parser::should_process_file_extension(
-        "cpp",
+        OsStr::new("cpp"),
         &config.file_extensions
     ));
     assert!(parser::should_process_file_extension(
-        "h",
+        OsStr::new("h"),
         &config.file_extensions
     ));
 }
 
+/// Ensures path normalization preserves case while still matching extensions.
 #[test]
 fn test_path_normalization() {
-    let test_cases = [
-        ("MAIN.CPP", "main.cpp"),
-        ("Header.H", "header.h"),
-        ("Source.CXX", "source.cxx"),
-        ("Test.hpp", "test.hpp"),
-    ];
+    let config = Config::default();
+    let test_cases = ["MAIN.CPP", "Header.H", "Source.CXX", "Test.hpp"];
 
-    for (input, expected) in &test_cases {
-        let normalized = input.to_lowercase();
-        assert_eq!(&normalized, expected);
+    for input in &test_cases {
+        let path = Path::new(input);
+        let file_name = parser::extract_and_validate_filename(path).unwrap();
 
-        // Verify the normalized extension would be processed
-        let path = Path::new(&normalized);
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            let config = Config::default();
+        assert_eq!(file_name.to_str().unwrap(), *input);
+
+        if let Some(ext) = file_name.extension() {
             assert!(parser::should_process_file_extension(
                 ext,
                 &config.file_extensions
@@ -158,33 +161,35 @@ fn test_path_normalization() {
     }
 }
 
+/// Covers edge cases for filenames lacking extensions or using uncommon
+/// casing.
 #[test]
 fn test_edge_cases_with_file_paths() {
     let config = Config::default();
 
     // Test files without extensions
     assert!(!parser::should_process_file_extension(
-        "",
+        OsStr::new(""),
         &config.file_extensions
     ));
 
     // Test with dots in filename but valid extension
     assert!(parser::should_process_file_extension(
-        "cpp",
+        OsStr::new("cpp"),
         &config.file_extensions
     ));
 
     // Test case insensitive extension matching
     assert!(parser::should_process_file_extension(
-        "CPP",
+        OsStr::new("CPP"),
         &config.file_extensions
     ));
     assert!(parser::should_process_file_extension(
-        "Hpp",
+        OsStr::new("Hpp"),
         &config.file_extensions
     ));
     assert!(parser::should_process_file_extension(
-        "C",
+        OsStr::new("C"),
         &config.file_extensions
     ));
 }

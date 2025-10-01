@@ -1,12 +1,23 @@
-// tests/main_function_tests.rs - Tests for main.rs functions not yet covered
+//! Broader integration-style tests that mirror `main.rs` behavior using
+//! temporary logs and synthetic directory trees.
 
 use ms2cc::{Config, parser};
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 use tempfile::TempDir;
 
-/// Test the main parsing functions with realistic MSBuild log content
+/// Returns `true` if the given line references the target compiler token,
+/// trimming surrounding quotes along the way.
+fn contains_compiler_token(line: &str, compiler: &str) -> bool {
+    line.split_whitespace()
+        .map(|token| token.trim_matches(|c| matches!(c, '"' | '\'')))
+        .any(|token| token.eq_ignore_ascii_case(compiler))
+}
+
+/// Parses a realistic MSBuild log snippet and verifies single- vs multi-line
+/// command detection.
 #[test]
 fn test_msbuild_log_parsing_realistic() {
     let temp_dir = TempDir::new().unwrap();
@@ -45,12 +56,9 @@ fn test_msbuild_log_parsing_realistic() {
     let mut multi_line_potential = 0;
 
     for line in content.lines() {
-        let line_lower = line.to_lowercase();
-        if line_lower.contains(&config.compiler_executable.to_lowercase()) {
-            if parser::ends_with_cpp_source_file(
-                &line_lower,
-                &config.file_extensions,
-            ) {
+        if contains_compiler_token(line, &config.compiler_executable) {
+            if parser::ends_with_cpp_source_file(line, &config.file_extensions)
+            {
                 single_line_commands += 1;
             } else {
                 multi_line_potential += 1;
@@ -63,6 +71,8 @@ fn test_msbuild_log_parsing_realistic() {
     assert_eq!(multi_line_potential, 1);
 }
 
+/// Builds a large directory tree and ensures traversal respects exclusion and
+/// extension filters.
 #[test]
 fn test_large_directory_simulation() {
     let temp_dir = TempDir::new().unwrap();
@@ -115,8 +125,7 @@ fn test_large_directory_simulation() {
             let path = entry.path();
 
             if path.is_dir() {
-                if let Some(dir_name) =
-                    path.file_name().and_then(|n| n.to_str())
+                if let Some(dir_name) = path.file_name()
                     && !parser::should_exclude_directory(
                         dir_name,
                         &config.exclude_directories,
@@ -125,7 +134,7 @@ fn test_large_directory_simulation() {
                     visit_directory(&path, config, processed, skipped);
                 }
             } else if path.is_file()
-                && let Some(ext) = path.extension().and_then(|e| e.to_str())
+                && let Some(ext) = path.extension()
             {
                 if parser::should_process_file_extension(
                     ext,
@@ -151,6 +160,8 @@ fn test_large_directory_simulation() {
     assert!(skipped_files > 0, "Should have skipped some non-C++ files");
 }
 
+/// Validates that parser helpers classify lines with and without source files
+/// correctly.
 #[test]
 fn test_error_conditions_in_parsing() {
     let config = Config::default();
@@ -175,9 +186,8 @@ fn test_error_conditions_in_parsing() {
     ];
 
     for (line, should_match) in &test_cases {
-        let contains_compiler = line
-            .to_lowercase()
-            .contains(&config.compiler_executable.to_lowercase());
+        let contains_compiler =
+            contains_compiler_token(line, &config.compiler_executable);
         let ends_with_cpp =
             parser::ends_with_cpp_source_file(line, &config.file_extensions);
 
@@ -197,6 +207,7 @@ fn test_error_conditions_in_parsing() {
     }
 }
 
+/// Exercises the tokenizer against whitespace and length edge cases.
 #[test]
 fn test_tokenization_edge_cases() {
     let test_cases = [
@@ -239,6 +250,7 @@ fn test_tokenization_edge_cases() {
     }
 }
 
+/// Covers additional tokenization scenarios including quoting and escaping.
 #[test]
 fn test_tokenize_compile_command_edge_cases() {
     let test_cases = [
@@ -264,6 +276,7 @@ fn test_tokenize_compile_command_edge_cases() {
     }
 }
 
+/// Simulates path reconstruction outcomes for various argument patterns.
 #[test]
 fn test_path_reconstruction_scenarios() {
     let temp_dir = TempDir::new().unwrap();
@@ -322,7 +335,7 @@ fn test_path_reconstruction_scenarios() {
 
     for (args, _should_succeed) in &test_cases {
         if args.is_empty() {
-            let result = parser::extract_and_validate_filename("");
+            let result = parser::extract_and_validate_filename(Path::new(""));
             assert!(result.is_err(), "Empty args should fail");
             continue;
         }
@@ -333,7 +346,8 @@ fn test_path_reconstruction_scenarios() {
         }
 
         let last_arg = args.last().unwrap();
-        let filename_result = parser::extract_and_validate_filename(last_arg);
+        let filename_result =
+            parser::extract_and_validate_filename(Path::new(last_arg));
 
         if last_arg.ends_with(".cpp") {
             assert!(
@@ -347,6 +361,7 @@ fn test_path_reconstruction_scenarios() {
     }
 }
 
+/// Confirms configuration data can be shared across threads without races.
 #[test]
 fn test_concurrent_access_patterns() {
     // Test that our Config can be safely shared across threads
@@ -360,14 +375,14 @@ fn test_concurrent_access_patterns() {
                     // Simulate concurrent access to config
                     for ext in &["cpp", "h", "c", "txt", "py"] {
                         let _ = parser::should_process_file_extension(
-                            ext,
+                            OsStr::new(ext),
                             &config_ref.file_extensions,
                         );
                     }
 
                     for dir in &[".git", "src", "target", "build"] {
                         let _ = parser::should_exclude_directory(
-                            dir,
+                            OsStr::new(dir),
                             &config_ref.exclude_directories,
                         );
                     }
@@ -381,6 +396,7 @@ fn test_concurrent_access_patterns() {
     });
 }
 
+/// Checks that repeated heavy tokenization stays efficient and accurate.
 #[test]
 fn test_memory_efficiency() {
     // Test that our parsing functions don't cause excessive allocations

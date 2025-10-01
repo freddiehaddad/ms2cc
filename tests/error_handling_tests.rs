@@ -1,8 +1,13 @@
-// tests/error_handling_tests.rs - Tests for error conditions and edge cases
+//! Regression and edge-case tests covering the library’s structured error
+//! behavior and resilience against malformed inputs.
 
-use ms2cc::{Config, compile_commands, parser};
+use ms2cc::{Config, Ms2ccError, compile_commands, parser};
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
+/// Verifies the parser rejects malformed compile command inputs without
+/// panicking and strips quotes from tokens.
 #[test]
 fn test_malformed_input_handling() {
     let _config = Config::default();
@@ -25,7 +30,8 @@ fn test_malformed_input_handling() {
             let last_token = tokens.last().unwrap();
 
             // Should handle gracefully
-            let result = parser::extract_and_validate_filename(last_token);
+            let result =
+                parser::extract_and_validate_filename(Path::new(last_token));
             assert!(result.is_err());
         }
 
@@ -39,6 +45,46 @@ fn test_malformed_input_handling() {
     }
 }
 
+/// Ensures parser helpers surface structured errors for missing file
+/// components.
+#[test]
+fn test_structured_errors_from_parser() {
+    let missing_extension =
+        parser::extract_and_validate_filename(Path::new("file"));
+    assert!(matches!(
+        missing_extension,
+        Err(Ms2ccError::MissingExtension { .. })
+    ));
+
+    let missing_file_name =
+        parser::extract_and_validate_filename(Path::new("/"));
+    assert!(matches!(
+        missing_file_name,
+        Err(Ms2ccError::MissingFileName { .. })
+    ));
+}
+
+/// Confirms compile command helpers map validation failures to the
+/// appropriate `Ms2ccError` variants.
+#[test]
+fn test_structured_errors_from_compile_commands() {
+    let err = compile_commands::create_compile_command(
+        PathBuf::from("file.cpp"),
+        Vec::new(),
+    )
+    .unwrap_err();
+    assert!(matches!(err, Ms2ccError::MissingParent { .. }));
+
+    let fo_err =
+        compile_commands::extract_fo_path(OsStr::new("/FXbad")).unwrap_err();
+    assert!(matches!(
+        fo_err,
+        Ms2ccError::InvalidFoArgument { argument } if argument == "/FXbad"
+    ));
+}
+
+/// Exercises boundary conditions such as long inputs, excessive quoting, and
+/// unusual directory or extension names.
 #[test]
 fn test_boundary_conditions() {
     let config = Config::default();
@@ -77,8 +123,10 @@ fn test_boundary_conditions() {
     ];
 
     for dir in edge_case_dirs {
-        let result =
-            parser::should_exclude_directory(dir, &config.exclude_directories);
+        let result = parser::should_exclude_directory(
+            OsStr::new(dir),
+            &config.exclude_directories,
+        );
         assert!(!result);
     }
 
@@ -95,13 +143,16 @@ fn test_boundary_conditions() {
     ];
 
     for (ext, expected) in edge_case_exts {
-        let actual =
-            parser::should_process_file_extension(ext, &config.file_extensions);
+        let actual = parser::should_process_file_extension(
+            OsStr::new(ext),
+            &config.file_extensions,
+        );
         // Should not panic and return a boolean
         assert_eq!(actual, expected);
     }
 }
 
+/// Validates Unicode and special-character handling during tokenization.
 #[test]
 fn test_unicode_and_special_characters() {
     // Test with Unicode characters
@@ -145,6 +196,7 @@ fn test_unicode_and_special_characters() {
     }
 }
 
+/// Checks that extension and directory matching remains case-insensitive.
 #[test]
 fn test_case_sensitivity() {
     let config = Config::default();
@@ -165,8 +217,10 @@ fn test_case_sensitivity() {
     ];
 
     for (ext, should_match) in &case_variants {
-        let result =
-            parser::should_process_file_extension(ext, &config.file_extensions);
+        let result = parser::should_process_file_extension(
+            OsStr::new(ext),
+            &config.file_extensions,
+        );
         assert_eq!(
             result, *should_match,
             "Case sensitivity test failed for: {}",
@@ -185,8 +239,10 @@ fn test_case_sensitivity() {
     ];
 
     for (dir, should_exclude) in &dir_variants {
-        let result =
-            parser::should_exclude_directory(dir, &config.exclude_directories);
+        let result = parser::should_exclude_directory(
+            OsStr::new(dir),
+            &config.exclude_directories,
+        );
         assert_eq!(
             result, *should_exclude,
             "Directory exclusion test failed for: {}",
@@ -195,6 +251,8 @@ fn test_case_sensitivity() {
     }
 }
 
+/// Runs parser helpers concurrently to detect any hidden synchronization
+/// issues.
 #[test]
 fn test_concurrent_safety() {
     use std::sync::Arc;
@@ -211,13 +269,13 @@ fn test_concurrent_safety() {
                 for j in 0..100 {
                     let test_ext = format!("ext{}", (i * 100 + j) % 5);
                     let _ = parser::should_process_file_extension(
-                        &test_ext,
+                        OsStr::new(test_ext.as_str()),
                         &config.file_extensions,
                     );
 
                     let test_dir = format!("dir{}", (i * 100 + j) % 3);
                     let _ = parser::should_exclude_directory(
-                        &test_dir,
+                        OsStr::new(test_dir.as_str()),
                         &config.exclude_directories,
                     );
 
@@ -239,6 +297,8 @@ fn test_concurrent_safety() {
     }
 }
 
+/// Exercises tokenization with repeated invocations to catch potential memory
+/// leaks or unchecked growth.
 #[test]
 fn test_memory_usage_patterns() {
     // Test that repeated operations don't cause memory leaks
@@ -265,6 +325,8 @@ fn test_memory_usage_patterns() {
     }
 }
 
+/// Ensures compile command creation surfaces errors for problematic source
+/// paths.
 #[test]
 fn test_compile_command_creation_errors() {
     let _temp_dir = TempDir::new().unwrap();
@@ -283,8 +345,11 @@ fn test_compile_command_creation_errors() {
 
     for path_str in &error_cases {
         let path = std::path::PathBuf::from(path_str);
-        let args =
-            vec!["cl.exe".to_string(), "/c".to_string(), path_str.to_string()];
+        let args = vec![
+            OsString::from("cl.exe"),
+            OsString::from("/c"),
+            OsString::from(path_str),
+        ];
 
         // Test our library function
         let result = compile_commands::create_compile_command(path, args);
@@ -298,6 +363,7 @@ fn test_compile_command_creation_errors() {
     }
 }
 
+/// Covers `/Fo` parsing logic and discovery of the flag inside argument lists.
 #[test]
 fn test_fo_argument_edge_cases() {
     // Test /Fo argument parsing edge cases
@@ -312,7 +378,7 @@ fn test_fo_argument_edge_cases() {
     ];
 
     for (fo_arg, should_succeed) in &fo_cases {
-        let result = compile_commands::extract_fo_path(fo_arg);
+        let result = compile_commands::extract_fo_path(OsStr::new(fo_arg));
 
         if *should_succeed {
             assert!(
@@ -335,9 +401,8 @@ fn test_fo_argument_edge_cases() {
     ];
 
     for args in &arg_lists {
-        let string_args: Vec<String> =
-            args.iter().map(|s| s.to_string()).collect();
-        let result = compile_commands::find_fo_argument(&string_args);
+        let os_args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let result = compile_commands::find_fo_argument(&os_args);
 
         let has_fo = args.iter().any(|arg| arg.starts_with("/Fo"));
         if has_fo {

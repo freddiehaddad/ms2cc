@@ -13,7 +13,6 @@ The ms2cc project has been refactored to enable comprehensive unit testing while
   - `should_exclude_directory()` - Directory filtering logic
   - `should_process_file_extension()` - File extension validation
   - `tokenize_compile_command()` - Command line tokenization
-  - `cleanup_line()` - Quote removal and cleanup
   - `extract_and_validate_filename()` - File name validation
 
 - **`compile_commands` module**: Compile command creation logic

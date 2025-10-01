@@ -82,18 +82,119 @@ pub mod parser {
             .any(|allowed_ext| allowed_ext.to_lowercase() == ext_lower)
     }
 
-    /// Parse tokens from a compile command line
+    /// Parse tokens from a compile command line while preserving quoted segments.
+    ///
+    /// The tokenizer follows Windows command-line quoting conventions:
+    /// - Whitespace delimits arguments unless inside double quotes.
+    /// - Double quotes are removed while keeping their contents.
+    /// - Escaped quotes within quoted segments (e.g. `\"`) are unescaped.
+    /// - Empty quoted arguments (e.g. `""`) are preserved as empty strings.
     pub fn tokenize_compile_command(line: &str) -> Vec<String> {
-        line.split_whitespace().map(String::from).collect()
+        let mut tokens = Vec::new();
+        let mut current = String::new();
+        let mut in_quotes = false;
+        let mut backslash_count = 0;
+        let mut argument_in_progress = false;
+
+        for ch in line.chars() {
+            match ch {
+                '\\' => {
+                    backslash_count += 1;
+                }
+                '"' => {
+                    if backslash_count > 0 {
+                        for _ in 0..(backslash_count / 2) {
+                            current.push('\\');
+                        }
+                    }
+
+                    if backslash_count % 2 == 0 {
+                        if !argument_in_progress {
+                            argument_in_progress = true;
+                        }
+                        in_quotes = !in_quotes;
+                    } else {
+                        current.push('"');
+                        argument_in_progress = true;
+                    }
+
+                    backslash_count = 0;
+                }
+                c if c.is_whitespace() && !in_quotes => {
+                    if backslash_count > 0 {
+                        for _ in 0..backslash_count {
+                            current.push('\\');
+                        }
+                        backslash_count = 0;
+                        argument_in_progress = true;
+                    }
+
+                    if argument_in_progress {
+                        tokens.push(std::mem::take(&mut current));
+                        argument_in_progress = false;
+                    }
+                }
+                c => {
+                    if backslash_count > 0 {
+                        for _ in 0..backslash_count {
+                            current.push('\\');
+                        }
+                        backslash_count = 0;
+                    }
+
+                    current.push(c);
+                    argument_in_progress = true;
+                }
+            }
+        }
+
+        if backslash_count > 0 {
+            for _ in 0..backslash_count {
+                current.push('\\');
+            }
+            argument_in_progress = true;
+        }
+
+        if argument_in_progress {
+            tokens.push(current);
+        }
+
+        if !tokens.is_empty() {
+            let should_try = {
+                let first = &tokens[0];
+                first.contains(':') && !is_executable_path(first)
+            };
+
+            if should_try {
+                let mut merged = tokens[0].clone();
+                let mut end_index = None;
+
+                for (idx, part) in tokens.iter().enumerate().skip(1) {
+                    merged.push(' ');
+                    merged.push_str(part);
+
+                    if is_executable_path(&merged) {
+                        end_index = Some(idx);
+                        break;
+                    }
+                }
+
+                if let Some(end) = end_index {
+                    tokens.splice(0..=end, std::iter::once(merged));
+                }
+            }
+        }
+
+        tokens
     }
 
-    /// Clean up a line by removing quotes
-    pub fn cleanup_line(line: &str) -> String {
-        if line.contains('"') {
-            line.chars().filter(|&c| c != '"').collect()
-        } else {
-            line.to_string()
-        }
+    fn is_executable_path(token: &str) -> bool {
+        let token = token.trim();
+        let lowercase = token.to_ascii_lowercase();
+        lowercase.ends_with(".exe")
+            || lowercase.ends_with(".com")
+            || lowercase.ends_with(".cmd")
+            || lowercase.ends_with(".bat")
     }
 
     /// Extract file name and validate it has an extension
@@ -217,10 +318,57 @@ mod tests {
         }
 
         #[test]
-        fn test_cleanup_line() {
-            assert_eq!(parser::cleanup_line("hello\"world\""), "helloworld");
-            assert_eq!(parser::cleanup_line("no quotes"), "no quotes");
-            assert_eq!(parser::cleanup_line("\"quoted\""), "quoted");
+        fn test_tokenize_compile_command_with_quotes() {
+            let line =
+                r#""C:\Program Files\cl.exe" /c /I"C:\Some Path" main.cpp"#;
+            let tokens = parser::tokenize_compile_command(line);
+            assert_eq!(
+                tokens,
+                vec![
+                    "C:\\Program Files\\cl.exe",
+                    "/c",
+                    "/IC:\\Some Path",
+                    "main.cpp",
+                ]
+            );
+        }
+
+        #[test]
+        fn test_tokenize_compile_command_with_empty_argument() {
+            let line = r#"cl.exe "" "C:\path with spaces\file.cpp""#;
+            let tokens = parser::tokenize_compile_command(line);
+            assert_eq!(
+                tokens,
+                vec!["cl.exe", "", "C:\\path with spaces\\file.cpp",]
+            );
+        }
+
+        #[test]
+        fn test_tokenize_compile_command_with_escaped_quote() {
+            let line = r#"cl.exe "/D\"VALUE\"" main.cpp"#;
+            let tokens = parser::tokenize_compile_command(line);
+            assert_eq!(tokens, vec!["cl.exe", "/D\"VALUE\"", "main.cpp"]);
+        }
+
+        #[test]
+        fn test_tokenize_compile_command_with_trailing_backslash() {
+            let line = r#"cl.exe /I"C:\include\\" main.cpp"#;
+            let tokens = parser::tokenize_compile_command(line);
+            assert_eq!(tokens, vec!["cl.exe", "/IC:\\include\\", "main.cpp"]);
+        }
+
+        #[test]
+        fn test_tokenize_compile_command_unquoted_executable_path() {
+            let line = r#"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\CL.exe /c main.cpp"#;
+            let tokens = parser::tokenize_compile_command(line);
+            assert_eq!(
+                tokens,
+                vec![
+                    "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe",
+                    "/c",
+                    "main.cpp",
+                ]
+            );
         }
 
         #[test]

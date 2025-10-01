@@ -29,12 +29,13 @@ fn test_malformed_input_handling() {
             assert!(result.is_err());
         }
 
-        // Test cleanup
-        let cleaned = parser::cleanup_line(case);
-        assert!(
-            cleaned.len() <= case.len(),
-            "Cleanup should not increase length"
-        );
+        // Tokens should not retain quotes
+        for token in tokens {
+            assert!(
+                !token.contains('"'),
+                "Token should not retain quotes: {token:?}"
+            );
+        }
     }
 }
 
@@ -44,13 +45,13 @@ fn test_boundary_conditions() {
 
     // Test with very long strings
     let long_string = "a".repeat(10000);
-    let result = parser::cleanup_line(&long_string);
-    assert_eq!(result.len(), 10000);
+    let tokens = parser::tokenize_compile_command(&long_string);
+    assert_eq!(tokens, vec![long_string.clone()]);
 
     // Test with many quotes
     let many_quotes = "\"".repeat(1000);
-    let cleaned = parser::cleanup_line(&many_quotes);
-    assert_eq!(cleaned.len(), 0);
+    let tokens = parser::tokenize_compile_command(&many_quotes);
+    assert_eq!(tokens, vec![String::new()]);
 
     // Test with mixed content
     let mixed = format!(
@@ -60,10 +61,10 @@ fn test_boundary_conditions() {
         "\"".repeat(100),
         "\"".repeat(100)
     );
-    let cleaned = parser::cleanup_line(&mixed);
-    assert!(cleaned.contains("cl.exe"));
-    assert!(cleaned.contains("main.cpp"));
-    assert!(!cleaned.contains('"'));
+    let tokens = parser::tokenize_compile_command(&mixed);
+    assert!(tokens.iter().any(|t| t.contains("cl.exe")));
+    assert!(tokens.iter().any(|t| t.contains("main.cpp")));
+    assert!(tokens.iter().all(|t| !t.contains('"')));
 
     // Test directory name edge cases
     let edge_case_dirs = [
@@ -115,12 +116,7 @@ fn test_unicode_and_special_characters() {
     for case in &unicode_cases {
         let tokens = parser::tokenize_compile_command(case);
         assert!(tokens.len() >= 3, "Should tokenize Unicode strings");
-
-        let cleaned = parser::cleanup_line(case);
-        assert_eq!(
-            cleaned, *case,
-            "Unicode strings without quotes should be unchanged"
-        );
+        assert_eq!(tokens.join(" "), *case);
     }
 
     // Test with special characters in paths
@@ -141,8 +137,11 @@ fn test_unicode_and_special_characters() {
             case
         );
 
-        let cleaned = parser::cleanup_line(case);
-        assert!(!cleaned.contains('"'), "Should remove quotes: {}", case);
+        assert!(
+            tokens.iter().all(|t| !t.contains('"')),
+            "Should remove quotes: {}",
+            case
+        );
     }
 }
 
@@ -225,7 +224,6 @@ fn test_concurrent_safety() {
                     let test_line =
                         format!("cl.exe /c test{}.cpp", i * 100 + j);
                     let _ = parser::tokenize_compile_command(&test_line);
-                    let _ = parser::cleanup_line(&test_line);
                     let _ = parser::ends_with_cpp_source_file(
                         &test_line,
                         &config.file_extensions,
@@ -251,11 +249,9 @@ fn test_memory_usage_patterns() {
         let tokens = parser::tokenize_compile_command(&large_string);
         assert!(!tokens.is_empty());
 
-        let cleaned = parser::cleanup_line(&large_string);
-        assert!(cleaned.contains("cl.exe"));
+        assert!(tokens.iter().any(|t| t.contains("cl.exe")));
 
         drop(tokens);
-        drop(cleaned);
     }
 
     // Test with progressively larger inputs
@@ -265,8 +261,7 @@ fn test_memory_usage_patterns() {
         let result = parser::tokenize_compile_command(&test_string);
         assert_eq!(result.len(), 3); // cl.exe, /c, and the long filename
 
-        let cleaned = parser::cleanup_line(&test_string);
-        assert_eq!(cleaned.len(), test_string.len()); // No quotes to remove
+        assert!(result.iter().all(|t| !t.contains('"')));
     }
 }
 

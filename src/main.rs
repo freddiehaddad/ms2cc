@@ -1,7 +1,7 @@
 use clap::Parser;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use dashmap::DashMap;
-use ms2cc::CompileCommand;
+use ms2cc::{CompileCommand, parser};
 use serde_json::{to_writer, to_writer_pretty};
 use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader, BufWriter};
@@ -14,7 +14,6 @@ use std::{process, thread};
 const DEFAULT_BUFFER_SIZE: usize = 64 * 1024; // 64KB buffer for file I/O
 const RECV_TIMEOUT_MS: u64 = 500; // Timeout for channel receive operations
 const MULTILINE_RESERVE_SIZE: usize = 512; // Pre-allocation for multi-line commands
-const TOKEN_CAPACITY_DIVISOR: usize = 8; // Rough estimate for token capacity
 const DEFAULT_MAX_THREADS: u8 = 8; // Default number of threads per task
 const EXIT_FAILURE: i32 = -1; // Exit code for failure
 const HEADER_WIDTH: usize = 50; // Width for centered header text
@@ -279,10 +278,9 @@ fn find_all_lines(
             // This should be part of the line (... /Zi /EHsc ...), but let's
             // make sure.
             if lowercase.contains(&compiler_exe_lower) {
-                // We encountered a new line containing cl.exe before reaching
-                // completing the previous compile command.
-
-                // We'll log an error, reset the state and continue.
+                // We encountered a new line containing cl.exe before completing
+                // the previous compile command. We'll log an error, reset the
+                // state and continue.
                 let e = format!(
                     "Unexpected line {} while building the compile command {}",
                     line, compile_command
@@ -297,25 +295,11 @@ fn find_all_lines(
     }
 }
 
-/// Listens on the `rx` channel for strings and strips them of all superfluous
-/// characters.  Sends the updated string on the `tx` channel.
-fn cleanup_line(rx: Receiver<String>, tx: Sender<String>) {
-    while let Ok(mut s) = rx.recv() {
-        // Only process if quotes are present to avoid unnecessary work
-        if s.contains('"') {
-            s.retain(|c| c != '"');
-        }
-        let _ = tx.send(s);
-    }
-}
-
 /// Converts strings received on the `rx` channel into tokens and sends them out
 /// on the `tx` channel.
 fn tokenize_lines(rx: Receiver<String>, tx: Sender<Vec<String>>) {
     while let Ok(s) = rx.recv() {
-        // Pre-allocate with estimated capacity to reduce reallocations
-        let mut tokens = Vec::with_capacity(s.len() / TOKEN_CAPACITY_DIVISOR); // Rough estimate
-        tokens.extend(s.split_whitespace().map(String::from));
+        let tokens = parser::tokenize_compile_command(&s);
         let _ = tx.send(tokens);
     }
 }
@@ -675,14 +659,12 @@ fn main() {
     println!("Starting threads:");
     println!(" - 1 error handling thread");
     println!(" - 1 log searching thread");
-    println!(" - 1 log entry cleanup thread");
     println!(" - 1 tokenization thread");
     println!(" - 1 compile command generation thread");
     println!();
 
     let task_start_time = Instant::now();
     let (source_tx, source_rx) = unbounded();
-    let (preprocess_tx, preprocess_rx) = unbounded();
     let (token_tx, token_rx) = unbounded();
     let (compile_command_tx, compile_command_rx) = unbounded();
     let (error_tx, error_rx) = unbounded();
@@ -706,13 +688,9 @@ fn main() {
     });
 
     // Remove nested quotes (")
-    thread::spawn(move || {
-        cleanup_line(source_rx, preprocess_tx);
-    });
-
     // Tokenize
     thread::spawn(move || {
-        tokenize_lines(preprocess_rx, token_tx);
+        tokenize_lines(source_rx, token_tx);
     });
 
     // Verify the input

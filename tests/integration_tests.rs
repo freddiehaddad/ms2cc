@@ -11,17 +11,13 @@ fn test_end_to_end_parsing_workflow() {
     // Test the complete workflow of parsing a compile command
     let line = r#"cl.exe /c /Zi /nologo /W3 "C:\projects\src\main.cpp""#;
 
-    // Step 1: Clean the line
-    let cleaned = parser::cleanup_line(line);
-    assert!(!cleaned.contains('"'));
-
-    // Step 2: Tokenize
-    let tokens = parser::tokenize_compile_command(&cleaned);
+    // Tokenize the raw line directly
+    let tokens = parser::tokenize_compile_command(line);
     assert!(tokens.len() >= 2);
     assert_eq!(tokens[0], "cl.exe");
     assert!(tokens.last().unwrap().ends_with("main.cpp"));
 
-    // Step 3: Extract filename
+    // Extract filename
     let filename_result =
         parser::extract_and_validate_filename(tokens.last().unwrap());
     assert!(filename_result.is_ok());

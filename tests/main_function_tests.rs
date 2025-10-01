@@ -226,10 +226,7 @@ fn test_tokenization_edge_cases() {
             ),
             {
                 let mut expected = vec!["cl.exe"];
-                for _ in 0..50 {
-                    expected.push("/DVERY_LONG_DEFINE=\"test");
-                    expected.push("value\"");
-                }
+                expected.extend(vec!["/DVERY_LONG_DEFINE=test value"; 50]);
                 expected.push("main.cpp");
                 expected
             },
@@ -243,32 +240,27 @@ fn test_tokenization_edge_cases() {
 }
 
 #[test]
-fn test_quote_cleanup_edge_cases() {
+fn test_tokenize_compile_command_edge_cases() {
     let test_cases = [
-        // No quotes
-        ("cl.exe /c main.cpp", "cl.exe /c main.cpp"),
-        // Simple quotes
-        ("\"cl.exe\" /c \"main.cpp\"", "cl.exe /c main.cpp"),
-        // Nested/multiple quotes
-        ("\"cl.exe\" /c \"\"main.cpp\"\"", "cl.exe /c main.cpp"),
-        // Quotes in the middle
+        ("cl.exe /c main.cpp", vec!["cl.exe", "/c", "main.cpp"]),
         (
-            "cl.exe /c \"path with spaces/main.cpp\"",
-            "cl.exe /c path with spaces/main.cpp",
+            r#""cl.exe" /c "main.cpp""#,
+            vec!["cl.exe", "/c", "main.cpp"],
         ),
-        // Only quotes
-        ("\"\"\"", ""),
-        // Mixed quotes and content
-        ("\"start\" middle \"end\"", "start middle end"),
-        // Empty string
-        ("", ""),
-        // Single quote
-        ("\"", ""),
+        (
+            r#"cl.exe /I"C:\path with spaces""#,
+            vec!["cl.exe", "/IC:\\path with spaces"],
+        ),
+        (r#"cl.exe """#, vec!["cl.exe", ""]),
+        (r#"""#, vec![""]),
+        ("", Vec::<&str>::new()),
     ];
 
     for (input, expected) in &test_cases {
-        let result = parser::cleanup_line(input);
-        assert_eq!(result, *expected, "Failed for input: '{}'", input);
+        let tokens = parser::tokenize_compile_command(input);
+        let expected: Vec<String> =
+            expected.iter().map(|s| s.to_string()).collect();
+        assert_eq!(tokens, expected, "Failed for input: '{input}'");
     }
 }
 
@@ -401,9 +393,8 @@ fn test_memory_efficiency() {
     assert_eq!(tokens.last().unwrap(), "main.cpp");
     assert_eq!(tokens.len(), 1002); // cl.exe + 1000 defines + main.cpp
 
-    // Cleanup should be efficient too
-    let quoted_line = "\"".to_owned() + &large_line + "\"";
-    let cleaned = parser::cleanup_line(&quoted_line);
-    assert!(!cleaned.contains('"'));
-    assert!(cleaned.starts_with("cl.exe"));
+    // Quoted input should still tokenize efficiently
+    let quoted_line = format!("\"{}\"", large_line);
+    let quoted_tokens = parser::tokenize_compile_command(&quoted_line);
+    assert_eq!(quoted_tokens, vec![large_line]);
 }

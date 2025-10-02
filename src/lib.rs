@@ -30,6 +30,8 @@ use std::path::PathBuf;
 
 pub mod error;
 pub use error::Ms2ccError;
+pub mod config;
+pub use config::Config;
 
 /// Serde adaptors that convert between `Vec<OsString>` and JSON sequences.
 pub(crate) mod serde_helpers {
@@ -114,38 +116,6 @@ impl IndexedPath {
         match self {
             Self::Unique(path) => Some(path),
             Self::Ambiguous => None,
-        }
-    }
-}
-
-/// Configuration for the ms2cc tool
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub exclude_directories: Vec<String>,
-    pub file_extensions: Vec<String>,
-    pub compiler_executable: String,
-}
-
-impl Default for Config {
-    /// Provides sensible defaults that mirror the command-line flags exposed by
-    /// the binary so tests and library consumers share the same baseline.
-    fn default() -> Self {
-        Self {
-            exclude_directories: vec![".git".to_string()],
-            file_extensions: vec![
-                "c".to_string(),
-                "cc".to_string(),
-                "cpp".to_string(),
-                "cxx".to_string(),
-                "c++".to_string(),
-                "h".to_string(),
-                "hh".to_string(),
-                "hpp".to_string(),
-                "hxx".to_string(),
-                "h++".to_string(),
-                "inl".to_string(),
-            ],
-            compiler_executable: "cl.exe".to_string(),
         }
     }
 }

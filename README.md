@@ -1,16 +1,16 @@
 # MS2CC - MSBuild to Compile Commands
 
-A Rust CLI tool that uses `msbuild.log` files to generate a `compile_commands.json` compliant [^1] database for use with C/C++ language servers.
+MS2CC is a Rust CLI that turns `msbuild.log` files into a `compile_commands.json` compliant [^1] database for C and C++ language servers. Point it at the build log from a full MSBuild build and you get an IDE-ready compilation database in seconds.
+
+## Highlights
+
+- Built for clangd, the Microsoft C/C++ extension, and other LSP clients that consume `compile_commands.json`.
+- Iterator-driven pipeline that keeps memory use low while scanning logs and indexing source trees.
+- Friendly CLI with sensible defaults for exclusions, extensions, and thread counts.
 
 ## Introduction
 
-This tool enables full IDE-like functionality for C/C++ Language Server Protocol ([LSP]) compliant language servers that rely on a `compile_commands.json` database. It works by converting `msbuild.log` output files, generated when performing a full MSBuild project build, into a `compile_commands.json` database. Two such language servers are [clangd] and [Microsoft C/C++ Extension] for Visual Studio Code.
-
-## Recent Improvements
-
-- **Path preservation.** The parser now keeps the original casing and non-UTF-8 contents of every path by leaning on `Path`/`OsStr` primitives instead of allocating lowercase `String` copies. This avoids mismatches on case-sensitive file systems and ensures the emitted `compile_commands.json` matches the on-disk layout.
-- **Structured diagnostics.** All failures surface as an `Ms2ccError` variant with the relevant context (e.g., missing `/Fo` arguments or unresolved filenames). The CLI renders these errors in a human-readable form so you can pinpoint the root cause quickly.
-- **Safer concurrency defaults.** Shared configuration is now reference-counted and `--max-threads` is validated as a non-zero value, preventing accidental deadlocks caused by spawning zero workers while still allowing the workload to scale across cores.
+MS2CC enables full IDE-like support for C/C++ Language Server Protocol ([LSP]) clients. It ingests `msbuild.log` output from a complete MSBuild build and restructures each compile invocation into a `compile_commands.json` entry that language servers can understand. The database works seamlessly with tooling such as [clangd] and the [Microsoft C/C++ Extension] for Visual Studio Code.
 
 The `compile_commands.json` file is a database that lists all source files in your project along with the exact commands needed to compile each one. Each entry follows this structure:
 
@@ -26,31 +26,25 @@ The `compile_commands.json` file is a database that lists all source files in yo
 
 ## Installation
 
-There are two ways to obtain the `ms2cc.exe` binary: download a precompiled release or build it from source.
+Grab a prebuilt release from GitHub or build the binary locally with the Rust toolchain.
 
 ### Building from Source
 
-Since the tool was written in [Rust], the Rust development toolchain is required for compilation.
+Since MS2CC is written in [Rust], install the toolchain first:
 
-1. Prepare your environment by following the instructions on the [Rust installation page].
+1. Follow the [Rust installation page] to set up `rustup`.
 1. Clone the repository.
-1. Build a debug release with `cargo build` or a release version with `cargo build --release`.
-1. The generated executable will be under the `./target/debug/` or `./target/release/` directory.
+1. Run `cargo build` for a debug build or `cargo build --release` for an optimized binary.
+1. Pick up the resulting executable from `target/debug/` or `target/release/`.
 
 ## Generating the Database
 
-1. Complete a full build of your C/C++ MSBuild project.
-1. Run `ms2cc.exe`:
+1. Complete a full build of your C/C++ MSBuild project so the `msbuild.log` contains every compile command.
+1. Run `ms2cc.exe` (the default output is `compile_commands.json`; override it with `--output-file` if you prefer another path). Use `ms2cc.exe --help` to review every flag:
 
    ```console
    ms2cc.exe --input-file <PATH_TO_MSBUILD.LOG> --source-directory <PATH_TO_PROJECT_SOURCE>
    ```
-
-   This will create a `compile_commands.json` file in the same directory where you ran `ms2cc.exe`.
-
-   You can use the `--output-file` option to specify the name and location for the database to be written.
-
-> **NOTE:** You can run `ms2cc.exe` with the `--help` option for more details.
 
 ```console
 $ ms2cc.exe --help
@@ -83,22 +77,19 @@ Options:
 
 ### When to Regenerate the Database
 
-Several conditions require regenerating the `compile_commands.json` database:
-
-1. Source files are added to, removed from, or relocated within the project.
-1. Changes are made to any source file's compile commands.
+Regenerate the database whenever you add, delete, move, or reconfigure source files so the language server stays in sync.
 
 ## Editor Configuration
 
-Configuring your editor to make use of the `compile_commands.json` database requires a few steps:
+To hook MS2CC into your editor:
 
-1. Install a C/C++ language server
-1. Configure your editor
-1. Point the language server to your project
+1. Install a C/C++ language server.
+1. Configure your editor of choice.
+1. Point the language server at the generated database.
 
 ### Visual Studio Code
 
-In VSCode, you can install the [Microsoft C/C++ Extension] to enable C/C++ language support. Once installed, a `.vscode` directory will be created in your project folder, containing a `c_cpp_properties.json` file. The `configurations` key in this file holds an array of project-specific settings. For each relevant configuration, add the `compileCommands` property as shown below:
+In VSCode, install the [Microsoft C/C++ Extension] to enable language support. It creates a `.vscode/c_cpp_properties.json` file that stores per-project settings. For each configuration, add a `compileCommands` entry like this:
 
 ```json
 {
@@ -110,11 +101,11 @@ In VSCode, you can install the [Microsoft C/C++ Extension] to enable C/C++ langu
 }
 ```
 
-> **NOTE:** Set the path to the location of your `compile_commands.json` file.
+> **NOTE:** Update the path to match the location of your `compile_commands.json` file.
 
 ### Other Editors
 
-For most editors, [clangd] is likely the best choice. It automatically searches for a `compile_commands.json` file by traversing up the directory tree from the file you're editing, as well as checking any `build/` subdirectories. For instance, if you're editing `$SRC/gui/window.cpp,` clangd will look in `$SRC/gui/`, `$SRC/gui/build/`, `$SRC/`, `$SRC/build/`, and so on. You can also explicitly specify the path to the compilation database in your clangd configuration file:
+For most other editors, [clangd] is a great companion. It automatically walks up the directory tree (including `build/` subdirectories) to locate a `compile_commands.json`. For example, editing `$SRC/gui/window.cpp` prompts clangd to check `$SRC/gui/`, `$SRC/gui/build/`, `$SRC/`, `$SRC/build/`, and so on. You can also pin the path explicitly in your clangd configuration:
 
 ```yaml
 CompileFlags:
@@ -122,7 +113,7 @@ CompileFlags:
   CompilationDatabase: c:\\path\\to\\your\\compile_commands.json
 ```
 
-> **NOTE:** See the [clangd configuration] documentation for details.
+> **TIP:** The [clangd configuration] documentation covers additional options.
 
 ## Validation & Troubleshooting
 
@@ -136,7 +127,7 @@ cargo bench
 
 ### Quick smoke test
 
-Point the CLI at a known `msbuild.log` and source directory to ensure end-to-end parsing still works. The command below writes the database to `compile_commands.json` while pretty-printing the JSON output:
+Run a quick smoke test against a representative `msbuild.log` to confirm end-to-end parsing. This command writes the database to `compile_commands.json` and pretty-prints the result:
 
 ```powershell
 cargo run -- --input-file path\to\msbuild.log --source-directory path\to\src --pretty-print
@@ -146,7 +137,7 @@ cargo run -- --input-file path\to\msbuild.log --source-directory path\to\src --p
 
 ### Handling Duplicate Source File Names with Relative Paths
 
-In some cases, multiple source files in a project may share the same name, and the associated compile commands might not include absolute file paths. Since absolute paths are required, the tool attempts to disambiguate these entries using the `/Fo` compiler flag (if present in the compile command), which specifies the output object file. However, if the object file path lies outside the directory of the corresponding source file, this method may fail. When that happens, an error message is logged.
+Projects that reuse file names can confuse MSBuild logs when the compiler omits absolute paths. MS2CC tries to disambiguate entries with the `/Fo` flag, but if the emitted object file lives outside the source directory the lookup may still fail. In those cases MS2CC reports a descriptive error so you can adjust the build.
 
 ## Contributing
 
@@ -154,13 +145,13 @@ Contributions are welcome. Simply open a PR!
 
 ## Contact
 
-For questions or comments, please start a [discussion on github].
+For questions or comments, start a [discussion on GitHub].
 
 [^1]: <https://clang.llvm.org/docs/JSONCompilationDatabase.html>
 
 [clangd]: https://clangd.llvm.org/
 [clangd configuration]: https://clangd.llvm.org/config
-[discussion on github]: https://github.com/fhaddad_microsoft/ms2cc/discussions
+[discussion on GitHub]: https://github.com/fhaddad_microsoft/ms2cc/discussions
 [lsp]: https://microsoft.github.io/language-server-protocol/
 [microsoft c/c++ extension]: https://code.visualstudio.com/docs/languages/cpp
 [rust]: https://www.rust-lang.org/

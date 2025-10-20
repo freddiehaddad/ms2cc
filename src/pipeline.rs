@@ -132,10 +132,15 @@ fn run_lookup_stage(
     let walker_extensions = file_extensions;
     let walker_entry_tx = entry_tx.clone();
     let walker_error_tx = error_tx.clone();
+    let walker_threads = max_threads.get();
 
     let walker_handle = thread::spawn(move || {
-        let walker =
-            FileWalker::new(walker_dir, walker_excludes, walker_extensions);
+        let walker = FileWalker::new_with_threads(
+            walker_dir,
+            walker_excludes,
+            walker_extensions,
+            walker_threads,
+        );
 
         for result in walker {
             match result {

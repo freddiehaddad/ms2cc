@@ -1,71 +1,102 @@
+use jwalk::WalkDir;
 use ms2cc::Ms2ccError;
-use std::collections::VecDeque;
 use std::ffi::OsStr;
-use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 
-/// Iterator that walks a directory tree and yields normalized file paths that
-/// match the configured filters.
 pub struct FileWalker {
-    queue: VecDeque<PathBuf>,
-    exclude_directories: Vec<String>,
-    allowed_extensions: Vec<String>,
+    inner: Box<dyn Iterator<Item = Result<PathBuf, Ms2ccError>> + Send>,
 }
 
 impl FileWalker {
-    /// Creates a new iterator rooted at `root`, applying the provided exclusion
-    /// and extension filters.
-    pub fn new(
+    pub fn new_with_threads(
         root: PathBuf,
         exclude_directories: Vec<String>,
         file_extensions: Vec<String>,
+        num_threads: usize,
     ) -> Self {
-        let exclude_directories = exclude_directories
+        let exclude_directories: Vec<String> = exclude_directories
             .into_iter()
             .map(|value| value.to_lowercase())
             .collect();
-        let allowed_extensions = file_extensions
+        let allowed_extensions: Vec<String> = file_extensions
             .into_iter()
             .map(|value| value.to_lowercase())
             .collect();
 
-        let mut queue = VecDeque::new();
-        queue.push_back(root);
+        let exclude_dirs_clone = exclude_directories.clone();
+        let allowed_exts_clone = allowed_extensions.clone();
+
+        let walker = WalkDir::new(root)
+            .parallelism(jwalk::Parallelism::RayonNewPool(num_threads))
+            .skip_hidden(false)
+            .process_read_dir(move |_depth, _path, _state, children| {
+                children.retain(|entry_result| {
+                    if let Ok(entry) = entry_result {
+                        let path = entry.path();
+                        let file_type = entry.file_type();
+
+                        if file_type.is_dir() {
+                            !should_skip_directory(&path, &exclude_dirs_clone)
+                        } else if file_type.is_file() {
+                            is_allowed_file(&path, &allowed_exts_clone)
+                        } else {
+                            false
+                        }
+                    } else {
+                        true
+                    }
+                });
+            });
+
+        let iter =
+            walker.into_iter().filter_map(
+                move |entry_result| match entry_result {
+                    Ok(entry) => {
+                        let path = entry.path();
+                        if entry.file_type().is_file() {
+                            Some(normalize_path(&path))
+                        } else {
+                            None
+                        }
+                    }
+                    Err(err) => {
+                        let path = err
+                            .path()
+                            .unwrap_or_else(|| Path::new(""))
+                            .to_path_buf();
+                        Some(Err(Ms2ccError::io_error(err.into(), path)))
+                    }
+                },
+            );
 
         Self {
-            queue,
-            exclude_directories,
-            allowed_extensions,
+            inner: Box::new(iter),
         }
     }
+}
 
-    fn should_skip_directory(&self, path: &Path) -> bool {
-        path.file_name()
-            .and_then(OsStr::to_str)
-            .map(|name| name.to_lowercase())
-            .map(|name| {
-                self.exclude_directories.iter().any(|value| value == &name)
-            })
-            .unwrap_or(false)
-    }
+fn should_skip_directory(path: &Path, exclude_directories: &[String]) -> bool {
+    path.file_name()
+        .and_then(OsStr::to_str)
+        .map(|name| name.to_lowercase())
+        .map(|name| exclude_directories.iter().any(|value| value == &name))
+        .unwrap_or(false)
+}
 
-    fn is_allowed_file(&self, path: &Path) -> bool {
-        path.extension()
-            .and_then(OsStr::to_str)
-            .map(|ext| ext.to_lowercase())
-            .map(|ext| {
-                self.allowed_extensions.iter().any(|value| value == &ext)
-            })
-            .unwrap_or(false)
-    }
+fn is_allowed_file(path: &Path, allowed_extensions: &[String]) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .map(|ext| ext.to_lowercase())
+        .map(|ext| allowed_extensions.iter().any(|value| value == &ext))
+        .unwrap_or(false)
+}
 
-    fn normalize_path(path: &Path) -> Result<PathBuf, Ms2ccError> {
-        match path.to_str() {
-            Some(value) => Ok(PathBuf::from(value.to_lowercase())),
-            None => Err(Ms2ccError::PathNormalization {
-                path: path.to_path_buf(),
-            }),
-        }
+fn normalize_path(path: &Path) -> Result<PathBuf, Ms2ccError> {
+    match path.to_str() {
+        Some(value) => Ok(PathBuf::from(value.to_lowercase())),
+        None => Err(Ms2ccError::PathNormalization {
+            path: path.to_path_buf(),
+        }),
     }
 }
 
@@ -73,59 +104,7 @@ impl Iterator for FileWalker {
     type Item = Result<PathBuf, Ms2ccError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(path) = self.queue.pop_front() {
-            if path.is_dir() {
-                if self.should_skip_directory(&path) {
-                    continue;
-                }
-
-                match read_dir(&path) {
-                    Ok(entries) => {
-                        for entry in entries {
-                            match entry {
-                                Ok(dir_entry) => {
-                                    let entry_path = dir_entry.path();
-                                    if entry_path.is_dir() {
-                                        self.queue.push_back(entry_path);
-                                    } else if entry_path.is_file() {
-                                        if self.is_allowed_file(&entry_path) {
-                                            self.queue.push_back(entry_path);
-                                        }
-                                    } else {
-                                        return Some(Err(
-                                            Ms2ccError::UnexpectedEntry {
-                                                path: entry_path,
-                                            },
-                                        ));
-                                    }
-                                }
-                                Err(err) => {
-                                    return Some(Err(Ms2ccError::io_error(
-                                        err,
-                                        path.clone(),
-                                    )));
-                                }
-                            }
-                        }
-                        continue;
-                    }
-                    Err(err) => {
-                        return Some(Err(Ms2ccError::io_error(
-                            err,
-                            path.clone(),
-                        )));
-                    }
-                }
-            } else if path.is_file() {
-                if self.is_allowed_file(&path) {
-                    return Some(Self::normalize_path(&path));
-                }
-            } else {
-                return Some(Err(Ms2ccError::UnexpectedEntry { path }));
-            }
-        }
-
-        None
+        self.inner.next()
     }
 }
 
@@ -161,10 +140,11 @@ mod tests {
         touch_file(&skipped_ext);
         touch_file(&hidden_allowed);
 
-        let walker = FileWalker::new(
+        let walker = FileWalker::new_with_threads(
             root.to_path_buf(),
             vec![".git".to_string()],
             vec!["cpp".to_string()],
+            1,
         );
 
         let collected: Result<Vec<PathBuf>, Ms2ccError> = walker.collect();
@@ -186,10 +166,11 @@ mod tests {
         let mixed_case = include_dir.join("Main.CPP");
         touch_file(&mixed_case);
 
-        let walker = FileWalker::new(
+        let walker = FileWalker::new_with_threads(
             root.to_path_buf(),
             Vec::new(),
             vec!["cpp".to_string()],
+            1,
         );
 
         let files: Vec<PathBuf> = walker

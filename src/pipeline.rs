@@ -272,6 +272,10 @@ where
     }
 }
 
+fn normalize_component(component: &std::ffi::OsStr) -> Option<PathBuf> {
+    component.to_str().map(|s| PathBuf::from(s.to_lowercase()))
+}
+
 fn build_file_map(
     entry_rx: Receiver<PathBuf>,
     tree: Arc<DashMap<PathBuf, IndexedPath>>,
@@ -281,13 +285,14 @@ fn build_file_map(
     {
         if let (Some(file_name), Some(parent)) =
             (path.file_name(), path.parent())
+            && let (Some(normalized_file_name), Some(normalized_parent)) = (
+                normalize_component(file_name),
+                normalize_component(parent.as_os_str()),
+            )
         {
-            let file_name = PathBuf::from(file_name);
-            let parent = PathBuf::from(parent);
-
-            tree.entry(file_name)
+            tree.entry(normalized_file_name)
                 .and_modify(|entry| entry.mark_conflict())
-                .or_insert(IndexedPath::unique(parent));
+                .or_insert(IndexedPath::unique(normalized_parent));
         }
     }
 }

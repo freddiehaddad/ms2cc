@@ -54,7 +54,7 @@ impl FileWalker {
                     Ok(entry) => {
                         let path = entry.path();
                         if entry.file_type().is_file() {
-                            Some(normalize_path(&path))
+                            Some(Ok(path))
                         } else {
                             None
                         }
@@ -89,15 +89,6 @@ fn is_allowed_file(path: &Path, allowed_extensions: &[String]) -> bool {
         .map(|ext| ext.to_lowercase())
         .map(|ext| allowed_extensions.iter().any(|value| value == &ext))
         .unwrap_or(false)
-}
-
-fn normalize_path(path: &Path) -> Result<PathBuf, Ms2ccError> {
-    match path.to_str() {
-        Some(value) => Ok(PathBuf::from(value.to_lowercase())),
-        None => Err(Ms2ccError::PathNormalization {
-            path: path.to_path_buf(),
-        }),
-    }
 }
 
 impl Iterator for FileWalker {
@@ -151,14 +142,11 @@ mod tests {
         let files = collected.expect("walker success");
 
         assert_eq!(files.len(), 1);
-        assert_eq!(
-            files[0],
-            PathBuf::from(allowed_file.to_str().unwrap().to_lowercase())
-        );
+        assert_eq!(files[0], allowed_file);
     }
 
     #[test]
-    fn walker_normalizes_paths_to_lowercase() {
+    fn walker_returns_raw_paths() {
         let temp_dir = TempDir::new().expect("create temp dir");
         let root = temp_dir.path();
         let include_dir = root.join("SRC");
@@ -178,9 +166,6 @@ mod tests {
             .expect("walker success");
 
         assert_eq!(files.len(), 1);
-        assert_eq!(
-            files[0],
-            PathBuf::from(mixed_case.to_str().unwrap().to_lowercase())
-        );
+        assert_eq!(files[0], mixed_case);
     }
 }

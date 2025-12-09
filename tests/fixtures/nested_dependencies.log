@@ -1,0 +1,34 @@
+    33>Project "C:\ParallelProject\src\ParentProject\ParentProject.vcxproj" (33) is building "C:\ParallelProject\src\ChildProject\ChildProject.vcxproj" (46) on node 17 (default targets).
+    46>CreateDirectories:
+         Creating directory "C:\ParallelProject\src\ChildProject\obj\amd64\".
+    34>ClCompile:
+         C:\BuildTools\VC\Tools\MSVC\14.0\bin\amd64\CL.exe /c /I"C:\ParallelProject\src\ProjectG" /Zi /nologo /W4 /WX /Od /D _WINDLL /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Yu"stdafx.h" /Fp"C:\ParallelProject\src\ProjectG\obj\amd64\ProjectG.pch" /Fo"C:\ParallelProject\src\ProjectG\obj\amd64\\" /Fd"C:\ParallelProject\src\ProjectG\obj\amd64\vc143.pdb" /Gd /TP /FIstdafx.h /FC source4.cpp source5.cpp
+    34>ClCompile:
+         source4.cpp
+         source5.cpp
+    46>PrepareForBuild:
+         Creating directory "C:\ParallelProject\out\retail-amd64\ChildProject\".
+         Creating directory "C:\ParallelProject\src\ChildProject\obj\amd64\ChildProject.tlog\".
+         Creating directory "C:\ParallelProject\src\ChildProject\obj\amd64\generated\".
+    44>Project "C:\ParallelProject\src\ParentProject2\ParentProject2.proj" (44) is building "C:\ParallelProject\src\ChildProject2\ChildProject2.vcxproj" (54) on node 13 (default targets).
+    54>CreateDirectories:
+         Creating directory "C:\ParallelProject\src\ChildProject2\obj\amd64\".
+    46>InitializeBuildStatus:
+         Creating "C:\ParallelProject\src\ChildProject\obj\amd64\ChildProject.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+    54>PrepareForBuild:
+         Creating directory "C:\ParallelProject\out\retail-amd64\ChildProject2\".
+         Creating directory "C:\ParallelProject\src\ChildProject2\obj\amd64\ChildProject2.tlog\".
+    46>MessageCompile:
+         C:\BuildTools\WindowsSDK\10.0\bin\x64\mc.exe -h "C:\ParallelProject\src\ChildProject\obj\amd64\\" -r "C:\ParallelProject\src\ChildProject\obj\amd64\\" ChildProject.man
+    54>InitializeBuildStatus:
+         Creating "C:\ParallelProject\src\ChildProject2\obj\amd64\ChildProject2.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+    54>ClCompile:
+         C:\BuildTools\VC\Tools\MSVC\14.0\bin\amd64\CL.exe /c /I"C:\ParallelProject\src\ChildProject2" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Fo"C:\ParallelProject\src\ChildProject2\obj\amd64\\" /Fd"C:\ParallelProject\out\retail-amd64\ChildProject2\ChildProject2.pdb" /Gd /TP /FC source6.cpp
+    46>ResourceCompile:
+         C:\BuildTools\WindowsSDK\10.0\bin\x64\rc.exe /D _UNICODE /D UNICODE /I"C:\ParallelProject\src\ChildProject" /nologo /fo"C:\ParallelProject\src\ChildProject\obj\amd64\ChildProject.res" "C:\ParallelProject\src\ChildProject\obj\amd64\ChildProject.rc"
+    54>ClCompile:
+         source6.cpp
+    46>Done Building Project "C:\ParallelProject\src\ChildProject\ChildProject.vcxproj" (default targets).
+    33>Done Building Project "C:\ParallelProject\src\ParentProject\ParentProject.vcxproj" (Build target(s)).
+    54>Done Building Project "C:\ParallelProject\src\ChildProject2\ChildProject2.vcxproj" (default targets).
+    44>Done Building Project "C:\ParallelProject\src\ParentProject2\ParentProject2.proj" (Build target(s)).

@@ -1,158 +1,316 @@
-# MS2CC - MSBuild to Compile Commands
+# ms2cc
 
-MS2CC is a Rust CLI that turns `msbuild.log` files into a `compile_commands.json` compliant [^1] database for C and C++ language servers. Point it at the build log from a full MSBuild build and you get an IDE-ready compilation database in seconds.
+> Convert MSBuild logs to compile_commands.json for C/C++ language servers
 
-## Highlights
+## Table of Contents
 
-- Built for clangd, the Microsoft C/C++ extension, and other LSP clients that consume `compile_commands.json`.
-- Iterator-driven pipeline that keeps memory use low while scanning logs and indexing source trees.
-- Friendly CLI with sensible defaults for exclusions, extensions, and thread counts.
+- [What is ms2cc?](#what-is-ms2cc)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Editor Configuration](#editor-configuration)
+  - [Visual Studio Code](#visual-studio-code)
+  - [Neovim](#neovim)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
-## Introduction
+## What is ms2cc?
 
-MS2CC enables full IDE-like support for C/C++ Language Server Protocol ([LSP]) clients. It ingests `msbuild.log` output from a complete MSBuild build and restructures each compile invocation into a `compile_commands.json` entry that language servers can understand. The database works seamlessly with tooling such as [clangd] and the [Microsoft C/C++ Extension] for Visual Studio Code.
+ms2cc converts MSBuild build logs into `compile_commands.json` format. This compilation database is used by clangd, clang-tidy, and various IDEs for code intelligence features (IntelliSense, navigation, refactoring, linting).
 
-The `compile_commands.json` file is a database that lists all source files in your project along with the exact commands needed to compile each one. Each entry follows this structure:
+MSBuild does not generate `compile_commands.json`. ms2cc extracts compiler invocations from MSBuild's detailed logs and converts them to the standard format.
 
-```json
-[
-    {
-        "file": "main.cpp",
-        "directory": "C:\\projects\\example",
-        "arguments": ["cl.exe", "/EHsc", "/Zi", "/D", "DEBUG", "main.cpp"]
-    }
-]
-```
+## Requirements
+
+- **Platform:** Windows (Windows 10/11, Windows Server)
+- **Build System:** MSBuild (Visual Studio 2019, 2022, or Build Tools)
+- **For Building from Source (optional):** Rust toolchain
 
 ## Installation
 
-Grab a prebuilt release from GitHub or build the binary locally with the Rust toolchain.
+### Option A: Download Pre-built Binary
 
-### Building from Source
+1. **Download:**
+   - Visit the [releases page](https://github.com/freddiehaddad/ms2cc/releases)
+   - Download the `ms2cc-x.x.x.zip` file
 
-Since MS2CC is written in [Rust], install the toolchain first:
+2. **Extract:**
+   - Unzip the file to extract `ms2cc.exe`
 
-1. Follow the [Rust installation page] to set up `rustup`.
-1. Clone the repository.
-1. Run `cargo build` for a debug build or `cargo build --release` for an optimized binary.
-1. Pick up the resulting executable from `target/debug/` or `target/release/`.
+3. **Usage:**
+   - Run it from anywhere by adding the directory to your PATH, or
+   - Copy `ms2cc.exe` to your project directory
 
-## Generating the Database
+### Option B: Build from Source
 
-1. Complete a full build of your C/C++ MSBuild project so the `msbuild.log` contains every compile command.
-1. Run `ms2cc.exe` (the default output is `compile_commands.json`; override it with `--output-file` if you prefer another path). Use `ms2cc.exe --help` to review every flag:
+1. **Install Rust** (if not already installed):
 
-   ```console
-   ms2cc.exe --input-file <PATH_TO_MSBUILD.LOG> --source-directory <PATH_TO_PROJECT_SOURCE>
+   ```powershell
+   # Visit https://rustup.rs and follow the instructions
    ```
 
-```console
-$ ms2cc.exe --help
-Tool to generate a compile_commands.json database from an msbuild.log file.
+2. **Clone the repository:**
 
-Usage: ms2cc.exe [OPTIONS] --input-file <INPUT_FILE> --source-directory <SOURCE_DIRECTORY>
+   ```powershell
+   git clone https://github.com/freddiehaddad/ms2cc.git
+   cd ms2cc
+   ```
 
-Options:
-  -i, --input-file <INPUT_FILE>
-          Path to msbuild.log
-  -o, --output-file <OUTPUT_FILE>
-          Output JSON file [default: compile_commands.json]
-  -p, --pretty-print
-          Pretty print output JSON file
-  -d, --source-directory <SOURCE_DIRECTORY>
-          Path to source code
-  -x, --exclude-directories <EXCLUDE_DIRECTORIES>
-          Directories to exclude during traversal (comma-separated) [default: .git]
-  -e, --file-extensions <FILE_EXTENSIONS>
-          File extensions to process (comma-separated) [default: c cc cpp cxx c++ h hh hpp hxx h++ inl]
-  -c, --compiler-executable <EXE>
-          Name of compiler executable [default: cl.exe]
-  -t, --max-threads <MAX_THREADS>
-          Max number of threads per task [default: 8]
-  -h, --help
-          Print help
-  -V, --version
-          Print version
+3. **Build the release version:**
+
+   ```powershell
+   cargo build --release
+   ```
+
+4. **Find the executable:**
+   ```
+   The built executable will be at: target\release\ms2cc.exe
+   ```
+
+## Quick Start
+
+### Build with Detailed Logging
+
+```powershell
+cd C:\path\to\your\project
+msbuild YourSolution.sln /v:detailed > msbuild.log
 ```
 
-### When to Regenerate the Database
+The `/v:detailed` flag is required. Without it, MSBuild doesn't log enough information.
 
-Regenerate the database whenever you add, delete, move, or reconfigure source files so the language server stays in sync.
+### Generate compile_commands.json
+
+```powershell
+ms2cc -i msbuild.log -o compile_commands.json
+```
+
+### Configure Your Editor
+
+See the [Editor Configuration](#editor-configuration) section below for your specific editor.
+
+## Usage
+
+### Command-Line Options
+
+ms2cc supports several options for customizing behavior:
+
+```powershell
+# Basic usage (uses defaults: msbuild.log → compile_commands.json)
+ms2cc
+
+# Specify custom input and output paths
+ms2cc -i build\debug.log -o compile_commands.json
+
+# Pretty-print the JSON output (useful for viewing/debugging)
+ms2cc -i msbuild.log -o compile_commands.json -p
+
+# Quiet mode (only show errors)
+ms2cc -i msbuild.log -o compile_commands.json -l error
+
+# Disable progress bars (useful for CI/CD or scripting)
+ms2cc -i msbuild.log -o compile_commands.json --no-progress
+
+# Show all available options
+ms2cc --help
+
+# Show version
+ms2cc --version
+```
+
+### Available Options
+
+| Option                     | Description                                          | Default                 |
+| -------------------------- | ---------------------------------------------------- | ----------------------- |
+| `-i, --input-file <FILE>`  | Path to MSBuild log file                             | `msbuild.log`           |
+| `-o, --output-file <FILE>` | Path to output compile_commands.json                 | `compile_commands.json` |
+| `-l, --log-level <LEVEL>`  | Logging level (off, error, warn, info, debug, trace) | `info`                  |
+| `-p, --pretty-print`       | Pretty-print JSON output                             | (disabled)              |
+| `--no-progress`            | Disable progress bar output                          | (progress bars enabled) |
+| `-h, --help`               | Display help information                             | -                       |
+| `-V, --version`            | Display version information                          | -                       |
 
 ## Editor Configuration
 
-To hook MS2CC into your editor:
+Once you've generated `compile_commands.json`, configure your editor to use it.
 
-1. Install a C/C++ language server.
-1. Configure your editor of choice.
-1. Point the language server at the generated database.
+> **Note:** The `compile_commands.json` file should be in your project root directory.
 
 ### Visual Studio Code
 
-In VSCode, install the [Microsoft C/C++ Extension] to enable language support. It creates a `.vscode/c_cpp_properties.json` file that stores per-project settings. For each configuration, add a `compileCommands` entry like this:
+#### Using Microsoft C/C++ Extension
+
+**Install the extension**
+
+1. Open Extensions (`Ctrl+Shift+X`)
+2. Search for "C/C++"
+3. Install the official Microsoft C/C++ extension
+
+**Configure compile_commands.json**
+
+Create or edit `.vscode/c_cpp_properties.json`:
 
 ```json
 {
-    "configurations": [
-        {
-            "compileCommands": "${workspaceFolder}/.vscode/compile_commands.json"
-        }
-    ]
+  "configurations": [
+    {
+      "name": "Win32",
+      "compileCommands": "${workspaceFolder}/compile_commands.json",
+      "intelliSenseMode": "msvc-x64"
+    }
+  ],
+  "version": 4
 }
 ```
 
-> **NOTE:** Update the path to match the location of your `compile_commands.json` file.
+**Reload VSCode**
 
-### Other Editors
+Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
 
-For most other editors, [clangd] is a great companion. It automatically walks up the directory tree (including `build/` subdirectories) to locate a `compile_commands.json`. For example, editing `$SRC/gui/window.cpp` prompts clangd to check `$SRC/gui/`, `$SRC/gui/build/`, `$SRC/`, `$SRC/build/`, and so on. You can also pin the path explicitly in your clangd configuration:
+#### Using clangd
 
-```yaml
-CompileFlags:
-  # Directory to compile_commands.json (omit the file name)
-  CompilationDatabase: c:\\path\\to\\your\\compile_commands.json
+**Install the clangd extension**
+
+1. Open VSCode Extensions (`Ctrl+Shift+X`)
+2. Search for "clangd"
+3. Install the official `llvm-vs-code-extensions.vscode-clangd` extension
+4. If prompted to download clangd, click "Download"
+
+**Disable Microsoft C++ IntelliSense**
+
+Create or edit `.vscode/settings.json` in your project:
+
+```json
+{
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}",
+    "--background-index",
+    "--clang-tidy"
+  ]
+}
 ```
 
-> **TIP:** The [clangd configuration] documentation covers additional options.
+**Reload VSCode**
 
-## Validation & Troubleshooting
+Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
 
-### Automated checks
+### Neovim
+
+**Install clangd**
+
+- [clangd releases](https://github.com/clangd/clangd/releases)
+- Add to your PATH or note the installation path
+
+**Install nvim-lspconfig**
+
+#### Using lazy.nvim
+
+```lua
+{
+  "neovim/nvim-lspconfig",
+  config = function()
+    require("lspconfig").clangd.setup{
+      cmd = {
+        "clangd",
+        "--background-index",
+        "--clang-tidy",
+        "--compile-commands-dir=.",
+      },
+      root_dir = require("lspconfig").util.root_pattern(
+        "compile_commands.json",
+        ".git"
+      ),
+    }
+  end
+}
+```
+
+#### Using Neovim's built-in package manager (Neovim 0.12+)
+
+Clone nvim-lspconfig:
 
 ```powershell
-cargo fmt
-cargo test
-cargo bench
+git clone https://github.com/neovim/nvim-lspconfig.git "$env:LOCALAPPDATA\nvim-data\site\pack\plugins\start\nvim-lspconfig"
 ```
 
-### Quick smoke test
+Add to your `init.lua`:
 
-Run a quick smoke test against a representative `msbuild.log` to confirm end-to-end parsing. This command writes the database to `compile_commands.json` and pretty-prints the result:
+```lua
+require'lspconfig'.clangd.setup{
+  cmd = {
+    "clangd",
+    "--background-index",
+    "--clang-tidy",
+    "--compile-commands-dir=.",
+  },
+  root_dir = require'lspconfig'.util.root_pattern(
+    "compile_commands.json",
+    ".git"
+  ),
+}
+```
+
+**Place compile_commands.json in project root**
+
+## Troubleshooting
+
+### No compile_commands.json generated or file is empty
+
+**Cause:** MSBuild log doesn't have enough detail.
+
+**Solution:** Ensure you used `/v:detailed` when building:
 
 ```powershell
-cargo run -- --input-file path\to\msbuild.log --source-directory path\to\src --pretty-print
+msbuild YourSolution.sln /v:detailed > msbuild.log
 ```
 
-## Known Issues
+### Some source files are missing from compile_commands.json
 
-### Handling Duplicate Source File Names with Relative Paths
+**Possible causes:**
 
-Projects that reuse file names can confuse MSBuild logs when the compiler omits absolute paths. MS2CC tries to disambiguate entries with the `/Fo` flag, but if the emitted object file lives outside the source directory the lookup may still fail. In those cases MS2CC reports a descriptive error so you can adjust the build.
+- MSBuild verbosity too low
+- Some projects were skipped during build
+- Incremental build didn't compile all files
 
-## Contributing
+**Solutions:**
 
-Contributions are welcome. Simply open a PR!
+1. Use `/v:detailed` verbosity
+2. Do a clean rebuild: `msbuild YourSolution.sln /t:Rebuild /v:detailed > msbuild.log`
 
-## Contact
+### Editor doesn't recognize compile_commands.json
 
-For questions or comments, start a [discussion on GitHub].
+**Solution:**
 
-[^1]: <https://clang.llvm.org/docs/JSONCompilationDatabase.html>
+1. Ensure `compile_commands.json` is in your **project root directory**
+2. Check your editor configuration (see [Editor Configuration](#editor-configuration))
+3. For clangd, verify it's installed and accessible:
+   ```powershell
+   clangd --version
+   ```
+4. Reload/restart your editor
 
-[clangd]: https://clangd.llvm.org/
-[clangd configuration]: https://clangd.llvm.org/config
-[discussion on GitHub]: https://github.com/fhaddad_microsoft/ms2cc/discussions
-[lsp]: https://microsoft.github.io/language-server-protocol/
-[microsoft c/c++ extension]: https://code.visualstudio.com/docs/languages/cpp
-[rust]: https://www.rust-lang.org/
-[rust installation page]: https://www.rust-lang.org/tools/install
+### Duplicate symbols or conflicting IntelliSense
+
+**Cause:** Multiple IntelliSense engines running simultaneously.
+
+**Solution (VSCode):** Disable Microsoft C++ IntelliSense when using clangd:
+
+In `.vscode/settings.json`:
+
+```json
+{
+  "C_Cpp.intelliSenseEngine": "disabled"
+}
+```
+
+### clangd not found
+
+**Solution:**
+
+1. Download clangd from [https://github.com/clangd/clangd/releases](https://github.com/clangd/clangd/releases)
+2. Add to your PATH, or configure the full path in your editor settings
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE.txt](LICENSE.txt) file for details.

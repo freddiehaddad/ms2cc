@@ -1,0 +1,50 @@
+     4>Project "C:\ParallelProject\src\ProjectC\ProjectC.vcxproj" on node 3 (Build target(s)).
+     4>CreateDirectories:
+         Creating directory "C:\ParallelProject\src\ProjectC\obj\amd64\".
+     4>PrepareForBuild:
+         Creating directory "C:\ParallelProject\out\retail-amd64\ProjectC\".
+     4>InitializeBuildStatus:
+         Creating "C:\ParallelProject\src\ProjectC\obj\amd64\ProjectC.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+       ClCompile:
+         C:\BuildTools\VC\Tools\MSVC\14.0\bin\amd64\CL.exe /c /I"C:\ParallelProject\src\ProjectC" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Fo"C:\ParallelProject\src\ProjectC\obj\amd64\\" /Fd"C:\ParallelProject\out\retail-amd64\ProjectC\ProjectC.pdb" /Gd /TP /FC source1.cpp
+     5>Project "C:\ParallelProject\src\ProjectD\ProjectD.vcxproj" on node 4 (Build target(s)).
+     5>CreateDirectories:
+         Creating directory "C:\ParallelProject\src\ProjectD\obj\amd64\".
+     4>ClCompile:
+         source1.cpp
+     5>PrepareForBuild:
+         Creating directory "C:\ParallelProject\out\retail-amd64\ProjectD\".
+         Creating directory "C:\ParallelProject\src\ProjectD\obj\amd64\ProjectD.tlog\".
+       InitializeBuildStatus:
+         Creating "C:\ParallelProject\src\ProjectD\obj\amd64\ProjectD.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+       ClCompile:
+         C:\BuildTools\VC\Tools\MSVC\14.0\bin\amd64\CL.exe /c /I"C:\ParallelProject\src\ProjectD" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Yc"stdafx.h" /Fp"C:\ParallelProject\src\ProjectD\obj\amd64\ProjectD.pch" /Fo"C:\ParallelProject\src\ProjectD\obj\amd64\\" /Fd"C:\ParallelProject\src\ProjectD\obj\amd64\vc143.pdb" /Gd /TP /FIstdafx.h /FC "C:\ParallelProject\src\ProjectD\obj\amd64\stdafx.cpp"
+     6>Project "C:\ParallelProject\src\ProjectE\ProjectE.vcxproj" on node 5 (Build target(s)).
+     6>CreateDirectories:
+         Creating directory "C:\ParallelProject\src\ProjectE\obj\amd64\".
+     5>ClCompile:
+         stdafx.cpp
+     6>PrepareForBuild:
+         Creating directory "C:\ParallelProject\out\retail-amd64\ProjectE\".
+         Creating directory "C:\ParallelProject\src\ProjectE\obj\amd64\ProjectE.tlog\".
+       InitializeBuildStatus:
+         Creating "C:\ParallelProject\src\ProjectE\obj\amd64\ProjectE.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+     7>Project "C:\ParallelProject\src\ProjectF\ProjectF.vcxproj" on node 6 (Build target(s)).
+     7>CreateDirectories:
+         Creating directory "C:\ParallelProject\src\ProjectF\obj\amd64\".
+     7>PrepareForBuild:
+         Creating directory "C:\ParallelProject\out\retail-amd64\ProjectF\".
+         Creating directory "C:\ParallelProject\src\ProjectF\obj\amd64\ProjectF.tlog\".
+       InitializeBuildStatus:
+         Creating "C:\ParallelProject\src\ProjectF\obj\amd64\ProjectF.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+     7>ClCompile:
+         C:\BuildTools\VC\Tools\MSVC\14.0\bin\amd64\CL.exe /c /I"C:\ParallelProject\src\ProjectF" /I"C:\ParallelProject\src\base\common\inc" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Fo"C:\ParallelProject\src\ProjectF\obj\amd64\\" /Fd"C:\ParallelProject\out\retail-amd64\ProjectF\ProjectF.pdb" /Gd /TP /FC source2.cpp source3.cpp
+         source2.cpp
+         source3.cpp
+     5>ClCompile:
+         C:\BuildTools\VC\Tools\MSVC\14.0\bin\amd64\CL.exe /c /I"C:\ParallelProject\src\ProjectD" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Yu"stdafx.h" /Fp"C:\ParallelProject\src\ProjectD\obj\amd64\ProjectD.pch" /Fo"C:\ParallelProject\src\ProjectD\obj\amd64\\" /Fd"C:\ParallelProject\src\ProjectD\obj\amd64\vc143.pdb" /Gd /TP /FIstdafx.h /FC source4.cpp
+     5>ClCompile:
+         source4.cpp
+     4>Done Building Project "C:\ParallelProject\src\ProjectC\ProjectC.vcxproj" (Build target(s)).
+     7>Done Building Project "C:\ParallelProject\src\ProjectF\ProjectF.vcxproj" (Build target(s)).
+     5>Done Building Project "C:\ParallelProject\src\ProjectD\ProjectD.vcxproj" (Build target(s)).

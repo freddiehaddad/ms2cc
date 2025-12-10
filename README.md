@@ -15,17 +15,18 @@
   - [Other Editors](#other-editors)
 - [Troubleshooting](#troubleshooting)
 - [LSP and AI: Better Together](#lsp-and-ai-better-together)
+- [References](#references)
 - [License](#license)
 
 ## What is ms2cc?
 
-ms2cc converts MSBuild build logs into `compile_commands.json` format. This compilation database is used by language servers, and various IDEs for code intelligence features (IntelliSense, navigation, refactoring, linting).
+ms2cc converts MSBuild build logs into [`compile_commands.json`][compile-commands] format. This compilation database is used by [language servers][lsp], and various IDEs for code intelligence features (IntelliSense, navigation, refactoring, linting).
 
-MSBuild does not generate `compile_commands.json`. ms2cc extracts compiler invocations from MSBuild's detailed logs and converts them to the standard format.
+[MSBuild][msbuild-cli] does not generate [`compile_commands.json`][compile-commands]. ms2cc extracts compiler invocations from MSBuild's detailed logs and converts them to the standard format.
 
 ## Why is ms2cc Useful?
 
-C and C++ language servers (like clangd, ccls, Microsoft C/C++, etc.) need a compile_commands.json file because they cannot correctly understand or parse your code without the exact compiler flags that are used when building the project.
+C and C++ [language servers][lsp] (like [clangd][clangd], ccls, Microsoft C/C++, etc.) need a [`compile_commands.json`][compile-commands] file because they cannot correctly understand or parse your code without the exact compiler flags that are used when building the project.
 
 Unlike languages such as Rust, Go, Python, or Java, C and C++ code is not self-describing. A C/C++ source file:
 
@@ -63,7 +64,7 @@ A language server must replicate the exact compiler invocation, or it literally 
 
 ### Option B: Build from Source
 
-1. **Install Rust** (if not already installed):
+1. **Install [Rust][rust]** (if not already installed):
 
    ```text
    # Visit https://rustup.rs and follow the instructions
@@ -97,9 +98,9 @@ cd C:\path\to\your\project
 msbuild YourSolution.sln /v:detailed > msbuild.log
 ```
 
-The `/v:detailed` flag is required. Without it, MSBuild doesn't log enough information.
+The `/v:detailed` flag is required. Without it, [MSBuild][msbuild-cli] doesn't log enough information.
 
-> **Visual Studio IDE:** In Visual Studio 2019/2022 use **Build → Project Only → Build Only ProjectName**. When the Output window finishes scrolling, right-click inside it, choose **Save Build Log**, and save it as `msbuild.log` with **MSBuild Project Build Log (*.log)**.
+> **Visual Studio IDE:** In Visual Studio 2019/2022 use **Build > Project Only > Build Only ProjectName**. When the Output window finishes scrolling, right-click inside it, choose [**Save Build Log**][vs-build-logging], and save it as `msbuild.log` with **MSBuild Project Build Log (*.log)**.
 
 ### Generate compile_commands.json
 
@@ -155,7 +156,7 @@ ms2cc -i msbuild.log -o compile_commands.json -p
 # Quiet mode (only show errors)
 ms2cc -i msbuild.log -o compile_commands.json -l error
 
-# Disable progress bars (useful for CI/CD or scripting)
+# Disable progress bars (useful for scripting)
 ms2cc -i msbuild.log -o compile_commands.json --no-progress
 
 # Show all available options
@@ -190,7 +191,7 @@ Once you've generated `compile_commands.json`, configure your editor to use it.
 1. Install the extension
    1. Open Extensions (`Ctrl+Shift+X`)
    2. Search for "C/C++"
-   3. Install the official Microsoft C/C++ extension
+   3. Install the official [Microsoft C/C++ extension][ms-cpp-ext]
 
 2. Configure
 
@@ -202,7 +203,7 @@ Once you've generated `compile_commands.json`, configure your editor to use it.
        {
          "name": "Win32",
          "compileCommands": "${workspaceFolder}/compile_commands.json",
-         "intelliSenseMode": "msvc-x64"
+         "intelliSenseMode": "windows-msvc-x64"
        }
      ],
      "version": 4
@@ -217,7 +218,7 @@ Once you've generated `compile_commands.json`, configure your editor to use it.
           {
              "name": "Win32",
              "compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
-             "intelliSenseMode": "msvc-x64"
+             "intelliSenseMode": "windows-msvc-x64"
           }
        ],
        "version": 4
@@ -227,10 +228,12 @@ Once you've generated `compile_commands.json`, configure your editor to use it.
 3. Reload VSCode
 
    Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
+   
+4. Confirm the setup by opening a C/C++ file, pressing `Ctrl+Shift+P`, running `C/C++: Log Diagnostics`, and making sure the output reports no parsing or IntelliSense errors.
 
 #### Using clangd
 
-1. Install the clangd extension
+1. Install the [clangd][clangd] extension
 
    1. Open VSCode Extensions (`Ctrl+Shift+X`)
    2. Search for "clangd"
@@ -258,7 +261,7 @@ Once you've generated `compile_commands.json`, configure your editor to use it.
 
 ## Other Editors
 
-Neovim, Zed, Cursor, and most other popular editors have language server protocol (LSP) support and will fully integrate with clangd. Refer to the documentation for configuration.
+Neovim, Zed, Cursor, and most other popular editors have [language server protocol (LSP)][lsp] support and will fully integrate with [clangd][clangd]. Refer to the documentation for configuration.
 
 ## Troubleshooting
 
@@ -327,7 +330,7 @@ With the rise of AI-powered coding assistants, some developers believe LSP is an
 
 1. They provide deterministic, real-time guarantees
 
-   The Language Server Protocol gives editors fast, reliable, incremental features such as:
+   The [Language Server Protocol][lsp] gives editors fast, reliable, incremental features such as:
    - autocompletion
    - hover info and signature help
    - diagnostics in real time
@@ -359,15 +362,33 @@ With the rise of AI-powered coding assistants, some developers believe LSP is an
    LLMs work best when they are grounded in deterministic data -- and LSP is the grounding layer.
 
    Agents rely on:
-   - LSP diagnostics to know what’s broken
+   - LSP diagnostics to know what's broken
    - LSP symbol info to find definitions
    - LSP semantic tokens to reason about structure
    - LSP type information to provide accurate code suggestions
 
    If LSP didn’t exist, coding agents would be worse, not better.
 
-That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation that makes both manual coding and AI assistance better. Add ms2cc to your regular build workflows (CI, nightly jobs, or post-build steps) so `compile_commands.json` stays fresh whenever projects, configurations, or toolchains change.
+That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation that makes both manual coding and AI assistance better. Run ms2cc whenever you regenerate build logs so `compile_commands.json` stays fresh as projects, configurations, or toolchains change.
+
+## References
+
+- [Language Server Protocol (LSP)][lsp]
+- [clangd - C/C++ Language Server][clangd]
+- [`compile_commands.json` Format][compile-commands]
+- [Microsoft C/C++ Extension for VSCode][ms-cpp-ext]
+- [MSBuild Command-Line Reference][msbuild-cli]
+- [Visual Studio Build Logging][vs-build-logging]
+- [Rust Programming Language][rust]
+
+[lsp]: https://microsoft.github.io/language-server-protocol/
+[clangd]: https://clangd.llvm.org/
+[compile-commands]: https://clang.llvm.org/docs/JSONCompilationDatabase.html
+[ms-cpp-ext]: https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools
+[msbuild-cli]: https://learn.microsoft.com/en-us/visualstudio/msbuild/msbuild-command-line-reference
+[vs-build-logging]: https://learn.microsoft.com/en-us/visualstudio/ide/build-log-file-visual-studio
+[rust]: https://www.rust-lang.org/
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE.txt](LICENSE.txt) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE.txt) file for details.

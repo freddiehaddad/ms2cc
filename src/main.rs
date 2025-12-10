@@ -9,6 +9,7 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 // ----------------------------------------------------------------------------
@@ -583,12 +584,34 @@ fn run() -> Result<()> {
         args.output_file.display()
     );
 
+    // Create progress spinner for write operation if enabled
+    let write_pb = if show_progress {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("[{elapsed_precise}] {spinner:.cyan} {bytes} {msg}")
+                .unwrap()
+                .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ "),
+        );
+        pb.set_message("Writing output...");
+        pb.enable_steady_tick(Duration::from_millis(100));
+        pb
+    } else {
+        ProgressBar::hidden()
+    };
+
+    // Wrap output with progress tracking
+    let progress_writer = write_pb.wrap_write(output);
+
     if args.pretty_print {
-        serde_json::to_writer_pretty(output, &compile_commands)
+        serde_json::to_writer_pretty(progress_writer, &compile_commands)
             .context("Failed to write JSON output")?;
     } else {
-        serde_json::to_writer(output, &compile_commands).context("Failed to write JSON output")?;
+        serde_json::to_writer(progress_writer, &compile_commands)
+            .context("Failed to write JSON output")?;
     }
+
+    write_pb.finish_and_clear();
 
     info!("Finished");
 

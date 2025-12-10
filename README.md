@@ -13,6 +13,7 @@
   - [Visual Studio Code](#visual-studio-code)
   - [Neovim](#neovim)
 - [Troubleshooting](#troubleshooting)
+- [LSP and AI: Better Together](#lsp-and-ai-better-together)
 - [License](#license)
 
 ## What is ms2cc?
@@ -310,6 +311,53 @@ In `.vscode/settings.json`:
 
 1. Download clangd from [https://github.com/clangd/clangd/releases](https://github.com/clangd/clangd/releases)
 2. Add to your PATH, or configure the full path in your editor settings
+
+## LSP and AI: Better Together
+
+With the rise of AI-powered coding assistants, some developers beleive LSP is antiquated. However, LSP remains essential for high-quality code intelligence for several reasons:
+
+1. They provide deterministic, real-time guarantees
+
+   The Language Server Protocol gives editors fast, reliable, incremental features such as:
+   - autocompletion
+   - hover info and signature help
+   - diagnostics in real time
+   - semantic tokenization
+   - symbol indexing
+   - "go to definition" and cross-reference analysis
+
+   These features work because LSP servers maintain an up-to-date AST, symbol tables, type information, and can react within milliseconds.
+
+   LLM-based agents cannot match that determinism or sub-50 ms latency reliably, especially on larger codebases.
+
+2. LSP understands project semantics in a ways LLMs cannot match
+
+   Even with retrieval or agent-based navigation, LLMs still:
+   - lack precise understanding of type systems
+   - can hallucinate unseen functions or APIs
+   - struggle with multi-file, incremental code state
+   - cannot maintain a full AST-level view the way a compiler or language server can
+
+   LSPs plug directly into the compiler toolchain; that precision is not replaceable by probabilistic models alone.
+
+3. Agents build on top of LSP features -- not instead of them
+
+   Modern coding assistants (GitHub Copilot, Cursor AI, Codeium, Windsurf, Zed AI, etc.) typically use:
+   - LLM (reasoning + generation)
+   - LSP (semantic signals, types, diagnostics)
+   - Indexers (global symbol search, embeddings)
+
+   LLMs work best when they are grounded in deterministic data -- and LSP is the grounding layer.
+
+   Agents rely on:
+   - LSP diagnostics to know what’s broken
+   - LSP symbol info to find definitions
+   - LSP semantic tokens to reason about structure
+   - LSP type information to provide accurate code suggestions
+
+   If LSP didn’t exist, coding agents would be worse, not better.
+
+That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation that makes both manual coding and AI assistance better.
 
 ## License
 

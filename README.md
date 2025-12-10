@@ -5,22 +5,40 @@
 ## Table of Contents
 
 - [What is ms2cc?](#what-is-ms2cc)
+- [Why is ms2cc useful?](#why-is-ms2cc-useful)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [Editor Configuration](#editor-configuration)
   - [Visual Studio Code](#visual-studio-code)
-  - [Neovim](#neovim)
+  - [Other Editors](#other-editors)
 - [Troubleshooting](#troubleshooting)
 - [LSP and AI: Better Together](#lsp-and-ai-better-together)
 - [License](#license)
 
 ## What is ms2cc?
 
-ms2cc converts MSBuild build logs into `compile_commands.json` format. This compilation database is used by clangd, clang-tidy, and various IDEs for code intelligence features (IntelliSense, navigation, refactoring, linting).
+ms2cc converts MSBuild build logs into `compile_commands.json` format. This compilation database is used by language servers, and various IDEs for code intelligence features (IntelliSense, navigation, refactoring, linting).
 
 MSBuild does not generate `compile_commands.json`. ms2cc extracts compiler invocations from MSBuild's detailed logs and converts them to the standard format.
+
+## Why is ms2cc Useful?
+
+C and C++ language servers (like clangd, ccls, Microsoft C/C++, etc.) need a compile_commands.json file because they cannot correctly understand or parse your code without the exact compiler flags that are used when building the project.
+
+Unlike languages such as Rust, Go, Python, or Java, C and C++ code is not self-describing. A C/C++ source file:
+
+- depends on preprocessor macros
+- depends on include paths (-I)
+- depends on system headers
+- can change behavior based on platform and compiler
+- may use language extensions (-std=gnu++20, -fms-extensions)
+- may be compiled differently per file
+
+This means the same `.cpp` file can produce totally different ASTs depending on its flags.
+
+A language server must replicate the exact compiler invocation, or it literally cannot parse the file in the correct configuration.
 
 ## Requirements
 
@@ -47,7 +65,7 @@ MSBuild does not generate `compile_commands.json`. ms2cc extracts compiler invoc
 
 1. **Install Rust** (if not already installed):
 
-   ```powershell
+   ```text
    # Visit https://rustup.rs and follow the instructions
    ```
 
@@ -65,7 +83,8 @@ MSBuild does not generate `compile_commands.json`. ms2cc extracts compiler invoc
    ```
 
 4. **Find the executable:**
-   ```
+
+   ```text
    The built executable will be at: target\release\ms2cc.exe
    ```
 
@@ -80,6 +99,8 @@ msbuild YourSolution.sln /v:detailed > msbuild.log
 
 The `/v:detailed` flag is required. Without it, MSBuild doesn't log enough information.
 
+> **Visual Studio IDE:** In Visual Studio 2019/2022 use **Build → Project Only → Build Only ProjectName**. When the Output window finishes scrolling, right-click inside it, choose **Save Build Log**, and save it as `msbuild.log` with **MSBuild Project Build Log (*.log)**.
+
 ### Generate compile_commands.json
 
 ```powershell
@@ -89,6 +110,31 @@ ms2cc -i msbuild.log -o compile_commands.json
 ### Configure Your Editor
 
 See the [Editor Configuration](#editor-configuration) section below for your specific editor.
+
+### Verify the Output
+
+```powershell
+Test-Path compile_commands.json
+Get-Content compile_commands.json | Select-Object -First 8
+```
+
+The file should exist and contain one JSON object per compiler invocation, for example:
+
+```json
+[
+   {
+      "file": "src\\main.cpp",
+      "directory": "C:/path/to/your/project",
+      "arguments": [
+         "cl.exe",
+         "/Iinclude",
+         "src/main.cpp"
+      ]
+   }
+]
+```
+
+If the file is missing or empty, revisit the logging step.
 
 ## Usage
 
@@ -141,118 +187,78 @@ Once you've generated `compile_commands.json`, configure your editor to use it.
 
 #### Using Microsoft C/C++ Extension
 
-**Install the extension**
+1. Install the extension
+   1. Open Extensions (`Ctrl+Shift+X`)
+   2. Search for "C/C++"
+   3. Install the official Microsoft C/C++ extension
 
-1. Open Extensions (`Ctrl+Shift+X`)
-2. Search for "C/C++"
-3. Install the official Microsoft C/C++ extension
+2. Configure
 
-**Configure compile_commands.json**
+   Create or edit `.vscode/c_cpp_properties.json`:
 
-Create or edit `.vscode/c_cpp_properties.json`:
+   ```json
+   {
+     "configurations": [
+       {
+         "name": "Win32",
+         "compileCommands": "${workspaceFolder}/compile_commands.json",
+         "intelliSenseMode": "msvc-x64"
+       }
+     ],
+     "version": 4
+   }
+   ```
 
-```json
-{
-  "configurations": [
+    > **Note:** You can place the `compile_commands.json` file in the `.vscode` directory if you prefer:
+
+    ```json
     {
-      "name": "Win32",
-      "compileCommands": "${workspaceFolder}/compile_commands.json",
-      "intelliSenseMode": "msvc-x64"
+       "configurations": [
+          {
+             "name": "Win32",
+             "compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
+             "intelliSenseMode": "msvc-x64"
+          }
+       ],
+       "version": 4
     }
-  ],
-  "version": 4
-}
-```
+    ```
 
-**Reload VSCode**
+3. Reload VSCode
 
-Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
+   Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
 
 #### Using clangd
 
-**Install the clangd extension**
+1. Install the clangd extension
 
-1. Open VSCode Extensions (`Ctrl+Shift+X`)
-2. Search for "clangd"
-3. Install the official `llvm-vs-code-extensions.vscode-clangd` extension
-4. If prompted to download clangd, click "Download"
+   1. Open VSCode Extensions (`Ctrl+Shift+X`)
+   2. Search for "clangd"
+   3. Install the official `llvm-vs-code-extensions.vscode-clangd` extension
+   4. If prompted to download clangd, click "Download"
 
-**Disable Microsoft C++ IntelliSense**
+2. Disable Microsoft C++ IntelliSense
 
-Create or edit `.vscode/settings.json` in your project:
+   Create or edit `.vscode/settings.json` in your project:
 
-```json
-{
-  "C_Cpp.intelliSenseEngine": "disabled",
-  "clangd.arguments": [
-    "--compile-commands-dir=${workspaceFolder}",
-    "--background-index",
-    "--clang-tidy"
-  ]
-}
-```
+   ```json
+   {
+     "C_Cpp.intelliSenseEngine": "disabled",
+     "clangd.arguments": [
+       "--compile-commands-dir=${workspaceFolder}",
+       "--background-index",
+       "--clang-tidy"
+     ]
+   }
+   ```
 
-**Reload VSCode**
+3. Reload VSCode
 
-Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
+   Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
 
-### Neovim
+## Other Editors
 
-**Install clangd**
-
-- [clangd releases](https://github.com/clangd/clangd/releases)
-- Add to your PATH or note the installation path
-
-**Install nvim-lspconfig**
-
-#### Using lazy.nvim
-
-```lua
-{
-  "neovim/nvim-lspconfig",
-  config = function()
-    require("lspconfig").clangd.setup{
-      cmd = {
-        "clangd",
-        "--background-index",
-        "--clang-tidy",
-        "--compile-commands-dir=.",
-      },
-      root_dir = require("lspconfig").util.root_pattern(
-        "compile_commands.json",
-        ".git"
-      ),
-    }
-  end
-}
-```
-
-#### Using Neovim's built-in package manager (Neovim 0.12+)
-
-Clone nvim-lspconfig:
-
-```powershell
-git clone https://github.com/neovim/nvim-lspconfig.git "$env:LOCALAPPDATA\nvim-data\site\pack\plugins\start\nvim-lspconfig"
-```
-
-Add to your `init.lua`:
-
-```lua
-require'lspconfig'.clangd.setup{
-  cmd = {
-    "clangd",
-    "--background-index",
-    "--clang-tidy",
-    "--compile-commands-dir=.",
-  },
-  root_dir = require'lspconfig'.util.root_pattern(
-    "compile_commands.json",
-    ".git"
-  ),
-}
-```
-
-**Place compile_commands.json in project root**
+Neovim, Zed, Cursor, and most other popular editors have language server protocol (LSP) support and will fully integrate with clangd. Refer to the documentation for configuration.
 
 ## Troubleshooting
 
@@ -278,6 +284,7 @@ msbuild YourSolution.sln /v:detailed > msbuild.log
 
 1. Use `/v:detailed` verbosity
 2. Do a clean rebuild: `msbuild YourSolution.sln /t:Rebuild /v:detailed > msbuild.log`
+3. Delete any stale `compile_commands.json` files before regenerating, especially after switching configurations (Debug/Release, Win32/x64)
 
 ### Editor doesn't recognize compile_commands.json
 
@@ -286,9 +293,11 @@ msbuild YourSolution.sln /v:detailed > msbuild.log
 1. Ensure `compile_commands.json` is in your **project root directory**
 2. Check your editor configuration (see [Editor Configuration](#editor-configuration))
 3. For clangd, verify it's installed and accessible:
+
    ```powershell
    clangd --version
    ```
+
 4. Reload/restart your editor
 
 ### Duplicate symbols or conflicting IntelliSense
@@ -314,7 +323,7 @@ In `.vscode/settings.json`:
 
 ## LSP and AI: Better Together
 
-With the rise of AI-powered coding assistants, some developers beleive LSP is antiquated. However, LSP remains essential for high-quality code intelligence for several reasons:
+With the rise of AI-powered coding assistants, some developers believe LSP is antiquated. However, LSP remains essential for high-quality code intelligence for several reasons:
 
 1. They provide deterministic, real-time guarantees
 
@@ -357,7 +366,7 @@ With the rise of AI-powered coding assistants, some developers beleive LSP is an
 
    If LSP didn’t exist, coding agents would be worse, not better.
 
-That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation that makes both manual coding and AI assistance better.
+That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation that makes both manual coding and AI assistance better. Add ms2cc to your regular build workflows (CI, nightly jobs, or post-build steps) so `compile_commands.json` stays fresh whenever projects, configurations, or toolchains change.
 
 ## License
 

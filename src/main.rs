@@ -46,7 +46,7 @@ const PACKAGE_DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser)]
-#[command(about=PACKAGE_DESCRIPTION)]
+#[command(version, about=PACKAGE_DESCRIPTION)]
 struct Args {
     /// Full path to msbuild.log file
     #[arg(short = 'i', long, default_value = "msbuild.log")]

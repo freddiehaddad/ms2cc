@@ -100,7 +100,7 @@ msbuild YourSolution.sln /v:detailed > msbuild.log
 
 The `/v:detailed` flag is required. Without it, [MSBuild][msbuild-cli] doesn't log enough information.
 
-> **Visual Studio IDE:** In Visual Studio 2019/2022 use **Build > Project Only > Build Only ProjectName**. When the Output window finishes scrolling, right-click inside it, choose [**Save Build Log**][vs-build-logging], and save it as `msbuild.log` with **MSBuild Project Build Log (*.log)**.
+> **Visual Studio IDE:** In Visual Studio 2019/2022 use **Build > Project Only > Build Only ProjectName**. When the Output window finishes scrolling, right-click inside it, choose [**Save Build Log**][vs-build-logging], and save it as `msbuild.log` with **MSBuild Project Build Log (\*.log)**.
 
 ### Generate compile_commands.json
 
@@ -123,15 +123,11 @@ The file should exist and contain one JSON object per compiler invocation, for e
 
 ```json
 [
-   {
-      "file": "src\\main.cpp",
-      "directory": "C:/path/to/your/project",
-      "arguments": [
-         "cl.exe",
-         "/Iinclude",
-         "src/main.cpp"
-      ]
-   }
+  {
+    "file": "src\\main.cpp",
+    "directory": "C:/path/to/your/project",
+    "arguments": ["cl.exe", "/Iinclude", "src/main.cpp"]
+  }
 ]
 ```
 
@@ -210,31 +206,30 @@ Once you've generated `compile_commands.json`, configure your editor to use it.
    }
    ```
 
-    > **Note:** You can place the `compile_commands.json` file in the `.vscode` directory if you prefer:
+   > **Note:** You can place the `compile_commands.json` file in the `.vscode` directory if you prefer:
 
-    ```json
-    {
-       "configurations": [
-          {
-             "name": "Win32",
-             "compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
-             "intelliSenseMode": "windows-msvc-x64"
-          }
-       ],
-       "version": 4
-    }
-    ```
+   ```json
+   {
+     "configurations": [
+       {
+         "name": "Win32",
+         "compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
+         "intelliSenseMode": "windows-msvc-x64"
+       }
+     ],
+     "version": 4
+   }
+   ```
 
 3. Reload VSCode
 
    Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
-   
+
 4. Confirm the setup by opening a C/C++ file, pressing `Ctrl+Shift+P`, running `C/C++: Log Diagnostics`, and making sure the output reports no parsing or IntelliSense errors.
 
 #### Using clangd
 
 1. Install the [clangd][clangd] extension
-
    1. Open VSCode Extensions (`Ctrl+Shift+X`)
    2. Search for "clangd"
    3. Install the official `llvm-vs-code-extensions.vscode-clangd` extension
@@ -375,6 +370,7 @@ That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation
 
 - [Language Server Protocol (LSP)][lsp]
 - [clangd - C/C++ Language Server][clangd]
+- [clangd Configuration][clangd-config]
 - [`compile_commands.json` Format][compile-commands]
 - [Microsoft C/C++ Extension for VSCode][ms-cpp-ext]
 - [MSBuild Command-Line Reference][msbuild-cli]
@@ -383,12 +379,14 @@ That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation
 
 [lsp]: https://microsoft.github.io/language-server-protocol/
 [clangd]: https://clangd.llvm.org/
+[clangd-config]: https://clangd.llvm.org/config.html
 [compile-commands]: https://clang.llvm.org/docs/JSONCompilationDatabase.html
 [ms-cpp-ext]: https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools
 [msbuild-cli]: https://learn.microsoft.com/en-us/visualstudio/msbuild/msbuild-command-line-reference
 [vs-build-logging]: https://learn.microsoft.com/en-us/visualstudio/ide/build-log-file-visual-studio
 [rust]: https://www.rust-lang.org/
+[LICENSE]: LICENSE.txt
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE.txt) file for details.
+This project is licensed under the MIT License - see the [LICENSE] file for details.

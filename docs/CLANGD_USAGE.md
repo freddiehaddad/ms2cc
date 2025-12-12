@@ -14,7 +14,7 @@ This guide explains how to use clangd with MSVC projects using `compile_commands
 
 ### 1. Generate compile_commands.json
 
-```bash
+```powershell
 # Build your MSVC project with detailed logging
 msbuild YourProject.sln /t:Rebuild /p:Configuration=Release /p:Platform=x64 /v:detailed > msbuild.log
 
@@ -26,12 +26,9 @@ ms2cc
 
 ### 2. Copy .clangd Configuration (Optional but Recommended)
 
-```bash
+```powershell
 # Copy the template to your project root
 copy .clangd.template .clangd
-
-# Or on Unix-like systems:
-# cp .clangd.template .clangd
 ```
 
 ### 3. Use with Your Editor
@@ -97,13 +94,65 @@ unexpected argument 'gt' to '#pragma optimize'; expected ""
 
 **Impact**: Just warnings, doesn't affect code parsing or functionality.
 
-#### 3. Precompiled Header (PCH) Challenges
+#### 3. Precompiled Header (PCH) Incompatibility
 
-**Issue**: Some files using forced includes (`/FI stdafx.h`) may have issues if PCH isn't properly handled.
+**Issue**: MSVC and clang use incompatible precompiled header formats. Files that rely heavily on precompiled headers may show type errors in clangd, even though they compile fine with MSVC.
 
-**Status**: Under investigation. Most files work fine.
+**Technical Background**:
 
-**Workaround**: Ensure your `compile_commands.json` includes the `/FI` flag (ms2cc does this automatically).
+- MSVC generates `.pch` files in a proprietary binary format
+- clang generates `.pch` files in its own binary format
+- These formats are incompatible - clang cannot read MSVC's `.pch` files
+- ms2cc strips `/Yu` (use PCH) and `/Fp` (PCH file path) flags to prevent clang errors
+- ms2cc keeps `/FI` (force include) so the header text is still included
+- However, type information compiled into MSVC's PCH binary may not be visible to clangd
+
+**Symptoms**: Type mismatch errors in files that compile successfully with MSVC:
+
+```text
+Cannot initialize object parameter of type 'SerializationReader'
+with an expression of type 'MessageReader'
+
+no matching constructor for initialization of 'RequestData'
+
+member reference type 'std::unique_ptr<DataBase>' is not a pointer
+```
+
+**Root Cause**: The code relies on type definitions and inheritance relationships that exist in MSVC's compiled PCH state. When clangd only sees `/FI stdafx.h` (the header text), it may miss transitive includes or preprocessor state from the PCH.
+
+**Workarounds**:
+
+1. **Add explicit includes** (recommended - makes code more maintainable):
+
+   ```cpp
+   // At the top of affected .cpp file
+   #include "RequiredHeader.h"
+   ```
+
+2. **Suppress errors for specific files** in `.clangd`:
+
+   ```yaml
+   ---
+   If:
+     PathMatch: .*AffectedFile\.cpp
+   Diagnostics:
+     Suppress:
+       - ovl_no_viable_function_in_init
+       - ovl_no_viable_function_in_call
+       - member_function_call_bad_type
+   ```
+
+**Impact**:
+
+- Most files work fine, even with PCH
+- Files with heavy PCH dependencies may show false-positive type errors
+- This is a fundamental limitation due to incompatible binary formats
+- Does not affect MSVC compilation - only clangd's code analysis
+
+**Why ms2cc strips PCH flags**:
+
+- Keeping `/Yu` and `/Fp` would cause clang to fail: "PCH file was compiled with a different compiler"
+- Stripping them allows clangd to work for most files, with occasional false errors in PCH-heavy code
 
 ### 📊 Compatibility Statistics
 
@@ -202,13 +251,20 @@ Zed has built-in clangd support. Just ensure:
 
 **Settings** (in `settings.json`):
 
+The default settings should work fine. The example below might be helpful if you need to troubleshoot issues.
+
 ```json
 {
   "lsp": {
     "clangd": {
       "binary": {
-        "path": "clangd",
-        "arguments": ["--background-index", "--clang-tidy"]
+        "arguments": [
+          "--log", "verbose",
+          "--pretty",
+          "--completion-style", "detailed",
+          "--all-scopes-completion",
+          "--background-index",
+          "--clang-tidy"]
       }
     }
   }
@@ -310,7 +366,7 @@ Diagnostics:
 
 1. Do a full rebuild:
 
-   ```bash
+   ```powershell
    msbuild YourProject.sln /t:Rebuild /v:detailed > build.log
    ms2cc build.log
    ```
@@ -331,7 +387,7 @@ Index:
 
 **Or disable background indexing**:
 
-```bash
+```powershell
 clangd --background-index=false
 ```
 
@@ -359,6 +415,57 @@ Diagnostics:
   Suppress:
     - typecheck_member_reference_struct_union
 ```
+
+### Type Errors in Files Using Precompiled Headers
+
+**Symptoms**: clangd shows type mismatch errors or "no matching function" errors in files that compile fine with MSVC.
+
+**Example Errors**:
+
+```text
+Cannot initialize object parameter of type 'BaseClass' with an expression of type 'DerivedClass'
+no matching constructor for initialization of 'ClassName'
+no matching function for call to 'FunctionName'
+member reference type 'std::unique_ptr<Type>' is not a pointer
+```
+
+**Cause**: The file relies on type definitions that exist in MSVC's precompiled header binary, which clangd cannot read. See [Precompiled Header (PCH) Incompatibility](#3-precompiled-header-pch-incompatibility) for details.
+
+**Solutions** (in order of preference):
+
+1. **Make includes explicit** (best practice):
+
+   ```cpp
+   // In your .cpp file, add the missing header explicitly
+   #include "MissingHeader.h"
+   ```
+
+   This makes your code less dependent on PCH side effects and more maintainable.
+
+2. **Suppress errors for specific files**:
+
+   Edit your `.clangd` file to add a per-file suppression:
+
+   ```yaml
+   # At the end of the file
+   ---
+   If:
+     PathMatch: .*YourFileName\.cpp
+   Diagnostics:
+     Suppress:
+       - ovl_no_viable_function_in_init
+       - ovl_no_viable_function_in_call
+       - member_function_call_bad_type
+       - no_member
+   ```
+
+3. **Accept the limitation**: Use clangd for files that work well, and rely on MSVC IntelliSense for PCH-heavy files that show errors.
+
+**When to use each approach**:
+
+- **Explicit includes**: When you can modify the source files (best long-term solution)
+- **Per-file suppression**: For legacy code you cannot or should not modify
+- **Accept limitation**: When the file is heavily PCH-dependent and adding includes isn't practical
 
 ### clangd Crashes or Hangs
 

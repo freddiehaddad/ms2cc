@@ -132,9 +132,24 @@ fn tokenize_command_line(line: &str) -> Vec<String> {
 /// Check if a flag should be filtered out (PCH-related)
 fn should_filter_flag(flag: &str) -> bool {
     let flag_upper = flag.to_uppercase();
-    // Strip PCH flags: /Yc, /Yu, /Fp
+    // Strip PCH flags: /Yc, /Yu, /Fp<path>
     // Keep /FI (force include) - clangd supports this as -include
-    flag_upper.starts_with("/YC") || flag_upper.starts_with("/YU") || flag_upper.starts_with("/FP")
+    // Keep /fp:<model> (floating-point model) - has colon, different from /Fp (PCH)
+
+    if flag_upper.starts_with("/YC") || flag_upper.starts_with("/YU") {
+        return true;
+    }
+
+    // Check for /Fp (PCH file) but NOT /fp: (floating-point model)
+    // After uppercasing:
+    //   /fp:precise → /FP:PRECISE (floating-point, keep it)
+    //   /Fp"file.pch" → /FP"FILE.PCH" (PCH, filter it)
+    // The discriminator is the colon!
+    if flag_upper.starts_with("/FP") && !flag_upper.starts_with("/FP:") {
+        return true;
+    }
+
+    false
 }
 
 /// Check if a token is a source file (.c, .cpp, .cc, .cxx)
@@ -758,14 +773,25 @@ mod tests {
         assert!(should_filter_flag("/YuPrecompiled.h"));
         assert!(should_filter_flag("/Fp"));
         assert!(should_filter_flag("/FpDebug/test.pch"));
+        assert!(should_filter_flag("/Fp\"C:\\path\\file.pch\""));
+
+        // Should NOT filter floating-point model flags (they have colons!)
+        assert!(!should_filter_flag("/fp:precise"));
+        assert!(!should_filter_flag("/fp:fast"));
+        assert!(!should_filter_flag("/fp:strict"));
+        assert!(!should_filter_flag("/Fp:precise")); // Alternative valid form
+        assert!(!should_filter_flag("/fp:contract"));
+        assert!(!should_filter_flag("/fp:except"));
+        assert!(!should_filter_flag("/fp:except-"));
 
         // Should NOT filter force includes
         assert!(!should_filter_flag("/FI"));
         assert!(!should_filter_flag("/FIheader.h"));
 
-        // Case insensitive
+        // Case insensitive for PCH
         assert!(should_filter_flag("/yc"));
         assert!(should_filter_flag("/YC"));
+        assert!(should_filter_flag("/fp\"test.pch\"")); // PCH (no colon!)
 
         // Should not filter other flags
         assert!(!should_filter_flag("/c"));
@@ -875,6 +901,40 @@ mod tests {
         assert!(!commands[0].command.contains("/Yu"));
         assert!(!commands[0].command.contains("/Fp"));
         assert!(commands[0].command.contains("/FIcommon.h"));
+    }
+
+    #[test]
+    fn test_parse_cl_command_preserves_fp_model() {
+        let project_ctx = ProjectContext {
+            project_path: PathBuf::from(r"C:\project\test.vcxproj"),
+            project_dir: PathBuf::from(r"C:\project"),
+        };
+
+        // Test that /fp:precise (floating-point model) is preserved while /Fp (PCH) is filtered
+        let line = r#"  C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\CL.exe /c /fp:precise /YuStdafx.h /Fp"Debug\test.pch" /Od main.cpp"#;
+        let commands = parse_cl_command(line, &project_ctx, 200).unwrap();
+
+        assert_eq!(commands.len(), 1);
+
+        // Should keep /fp:precise (floating-point model)
+        assert!(
+            commands[0].command.contains("/fp:precise"),
+            "Command should contain /fp:precise but got: {}",
+            commands[0].command
+        );
+
+        // Should filter /Yu and /Fp"..." (PCH flags)
+        assert!(
+            !commands[0].command.contains("/Yu"),
+            "Command should not contain /Yu"
+        );
+        assert!(
+            !commands[0].command.contains("/Fp\""),
+            "Command should not contain /Fp with quotes"
+        );
+
+        // Should keep other flags
+        assert!(commands[0].command.contains("/Od"));
     }
 
     #[test]

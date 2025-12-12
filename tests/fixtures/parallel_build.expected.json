@@ -1,27 +1,27 @@
 [
   {
     "directory": "C:\\ParallelProject\\src\\ProjectC",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectC\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectC\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\out\\retail-amd64\\ProjectC\\ProjectC.pdb\" /Gd /TP /FC \"C:\\ParallelProject\\src\\ProjectC\\source1.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectC\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectC\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\out\\retail-amd64\\ProjectC\\ProjectC.pdb\" /Gd /TP /FC \"C:\\ParallelProject\\src\\ProjectC\\source1.cpp\"",
     "file": "C:\\ParallelProject\\src\\ProjectC\\source1.cpp"
   },
   {
     "directory": "C:\\ParallelProject\\src\\ProjectD",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectD\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\vc143.pdb\" /Gd /TP /FIstdafx.h /FC \"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\stdafx.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectD\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\vc143.pdb\" /Gd /TP /FIstdafx.h /FC \"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\stdafx.cpp\"",
     "file": "C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\stdafx.cpp"
   },
   {
     "directory": "C:\\ParallelProject\\src\\ProjectF",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectF\" /I\"C:\\ParallelProject\\src\\base\\common\\inc\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectF\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\out\\retail-amd64\\ProjectF\\ProjectF.pdb\" /Gd /TP /FC \"C:\\ParallelProject\\src\\ProjectF\\source2.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectF\" /I\"C:\\ParallelProject\\src\\base\\common\\inc\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectF\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\out\\retail-amd64\\ProjectF\\ProjectF.pdb\" /Gd /TP /FC \"C:\\ParallelProject\\src\\ProjectF\\source2.cpp\"",
     "file": "C:\\ParallelProject\\src\\ProjectF\\source2.cpp"
   },
   {
     "directory": "C:\\ParallelProject\\src\\ProjectF",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectF\" /I\"C:\\ParallelProject\\src\\base\\common\\inc\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectF\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\out\\retail-amd64\\ProjectF\\ProjectF.pdb\" /Gd /TP /FC \"C:\\ParallelProject\\src\\ProjectF\\source3.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectF\" /I\"C:\\ParallelProject\\src\\base\\common\\inc\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectF\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\out\\retail-amd64\\ProjectF\\ProjectF.pdb\" /Gd /TP /FC \"C:\\ParallelProject\\src\\ProjectF\\source3.cpp\"",
     "file": "C:\\ParallelProject\\src\\ProjectF\\source3.cpp"
   },
   {
     "directory": "C:\\ParallelProject\\src\\ProjectD",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectD\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\vc143.pdb\" /Gd /TP /FIstdafx.h /FC \"C:\\ParallelProject\\src\\ProjectD\\source4.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\amd64\\CL.exe /c /I\"C:\\ParallelProject\\src\\ProjectD\" /Zi /nologo /W4 /WX /Od /D _UNICODE /D UNICODE /D WIN64 /D NDEBUG /GF /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /std:c++20 /Fo\"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\\\\" /Fd\"C:\\ParallelProject\\src\\ProjectD\\obj\\amd64\\vc143.pdb\" /Gd /TP /FIstdafx.h /FC \"C:\\ParallelProject\\src\\ProjectD\\source4.cpp\"",
     "file": "C:\\ParallelProject\\src\\ProjectD\\source4.cpp"
   }
 ]

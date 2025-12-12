@@ -1,52 +1,52 @@
 [
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file1.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file1.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file1.cpp"
   },
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file2.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file2.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file2.cpp"
   },
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file3.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file3.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file3.cpp"
   },
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file4.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file4.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file4.cpp"
   },
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file5.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file5.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file5.cpp"
   },
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file6.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file6.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file6.cpp"
   },
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file7.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file7.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file7.cpp"
   },
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file8.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file8.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file8.cpp"
   },
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file9.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file9.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file9.cpp"
   },
   {
     "directory": "C:\\TestProject\\dev\\ProjectB",
-    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file10.cpp\"",
+    "command": "C:\\BuildTools\\VC\\Tools\\MSVC\\14.0\\bin\\HostX64\\x64\\CL.exe /c /Zi /nologo /W4 /WX /diagnostics:column /Od /D _UNICODE /D UNICODE /GF /Gm- /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /GR- /std:c++20 /permissive- /Fo\"C:\\TestProject\\obj\\Release\\x64\\ProjectB\\\\\" /Fd\"C:\\TestProject\\BuildOutput\\Release\\x64\\ProjectB\\ProjectB.pdb\" /Gd /TP /FC \"C:\\TestProject\\dev\\ProjectB\\file10.cpp\"",
     "file": "C:\\TestProject\\dev\\ProjectB\\file10.cpp"
   }
 ]

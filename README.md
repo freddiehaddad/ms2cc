@@ -254,9 +254,25 @@ Once you've generated `compile_commands.json`, configure your editor to use it.
 
    Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
 
-## Other Editors
+> **Note for MSVC Projects**: For optimal clangd compatibility with MSVC code, copy `.clangd.template` to `.clangd` in your project root. This configuration suppresses common MSVC-specific warnings. See [Using clangd with MSVC Projects](docs/CLANGD_USAGE.md) for details.
 
-Neovim, Zed, Cursor, and most other popular editors have [language server protocol (LSP)][lsp] support and will fully integrate with [clangd][clangd]. Refer to the documentation for configuration.
+### Other Editors
+
+Most modern editors have excellent clangd support. For detailed setup instructions including:
+
+- **Neovim**
+- **Zed**
+- **Cursor**
+- **Helix**
+- Other LSP-compatible editors
+
+See the **[Using clangd with MSVC Projects](docs/CLANGD_USAGE.md)** guide for complete configuration examples, compatibility information, and troubleshooting.
+
+**Quick clangd setup:**
+
+1. Generate `compile_commands.json` with ms2cc
+2. (Optional but recommended) Copy `.clangd.template` to `.clangd` in your project root
+3. Configure your editor to use clangd (see guide for editor-specific examples)
 
 ## Troubleshooting
 
@@ -319,6 +335,18 @@ In `.vscode/settings.json`:
 1. Download clangd from [https://github.com/clangd/clangd/releases](https://github.com/clangd/clangd/releases)
 2. Add to your PATH, or configure the full path in your editor settings
 
+### clangd shows too many warnings with MSVC code
+
+**Cause:** clangd reports some MSVC-specific warnings that aren't relevant (e.g., `#pragma optimize`, missing field initializers).
+
+**Solution:** Use the provided `.clangd` configuration template:
+
+1. Copy `.clangd.template` to `.clangd` in your project root
+2. Customize as needed (see comments in the template)
+3. For detailed information, see [Using clangd with MSVC Projects](docs/CLANGD_USAGE.md)
+
+The template suppresses common MSVC-specific warnings while keeping important diagnostics.
+
 ## LSP and AI: Better Together
 
 With the rise of AI-powered coding assistants, some developers believe LSP is antiquated. However, LSP remains essential for high-quality code intelligence for several reasons:
@@ -371,6 +399,7 @@ That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation
 - [Language Server Protocol (LSP)][lsp]
 - [clangd - C/C++ Language Server][clangd]
 - [clangd Configuration][clangd-config]
+- [Using clangd with MSVC Projects](docs/CLANGD_USAGE.md)
 - [`compile_commands.json` Format][compile-commands]
 - [Microsoft C/C++ Extension for VSCode][ms-cpp-ext]
 - [MSBuild Command-Line Reference][msbuild-cli]

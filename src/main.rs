@@ -394,37 +394,35 @@ fn compile_command_pattern() -> Result<Regex> {
 // ----------------------------------------------------------------------------
 
 /// Setup and configure the progress bar for reading the build log
-fn setup_read_progress_bar(show_progress: bool, file_size: u64) -> ProgressBar {
+fn setup_read_progress_bar(show_progress: bool, file_size: u64) -> Result<ProgressBar> {
     if show_progress {
         let pb = ProgressBar::new(file_size);
         pb.set_style(
             ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
-                .unwrap()
+                .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")?
                 .progress_chars("=> "),
         );
         pb.set_message("Processing build log...");
-        pb
+        Ok(pb)
     } else {
-        ProgressBar::hidden()
+        Ok(ProgressBar::hidden())
     }
 }
 
 /// Setup and configure the spinner progress bar for writing output
-fn setup_write_progress_bar(show_progress: bool) -> ProgressBar {
+fn setup_write_progress_bar(show_progress: bool) -> Result<ProgressBar> {
     if show_progress {
         let pb = ProgressBar::new_spinner();
         pb.set_style(
             ProgressStyle::default_spinner()
-                .template("[{elapsed_precise}] {spinner:.cyan} {bytes} {msg}")
-                .unwrap()
+                .template("[{elapsed_precise}] {spinner:.cyan} {bytes} {msg}")?
                 .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ "),
         );
         pb.set_message("Writing output...");
         pb.enable_steady_tick(Duration::from_millis(100));
-        pb
+        Ok(pb)
     } else {
-        ProgressBar::hidden()
+        Ok(ProgressBar::hidden())
     }
 }
 
@@ -628,7 +626,7 @@ fn process_msbuild_log(
     let file_size = file.metadata()?.len();
 
     // Create progress bar
-    let pb = setup_read_progress_bar(show_progress, file_size);
+    let pb = setup_read_progress_bar(show_progress, file_size)?;
 
     // Wrap file with progress tracking
     let progress_reader = pb.wrap_read(file);
@@ -747,7 +745,7 @@ fn run() -> Result<()> {
     );
 
     // Create progress spinner for write operation if enabled
-    let write_pb = setup_write_progress_bar(show_progress);
+    let write_pb = setup_write_progress_bar(show_progress)?;
 
     // Wrap output with progress tracking
     let progress_writer = write_pb.wrap_write(output);
@@ -1467,7 +1465,7 @@ mod tests {
 
     #[test]
     fn test_setup_read_progress_bar_enabled() {
-        let pb = setup_read_progress_bar(true, 1000);
+        let pb = setup_read_progress_bar(true, 1000).unwrap();
         // Should create a visible progress bar (not hidden)
         // We can't directly test visibility, but we can verify it doesn't panic
         pb.finish_and_clear();
@@ -1475,21 +1473,21 @@ mod tests {
 
     #[test]
     fn test_setup_read_progress_bar_disabled() {
-        let pb = setup_read_progress_bar(false, 1000);
+        let pb = setup_read_progress_bar(false, 1000).unwrap();
         // Should create a hidden progress bar
         pb.finish_and_clear();
     }
 
     #[test]
     fn test_setup_write_progress_bar_enabled() {
-        let pb = setup_write_progress_bar(true);
+        let pb = setup_write_progress_bar(true).unwrap();
         // Should create a visible spinner
         pb.finish_and_clear();
     }
 
     #[test]
     fn test_setup_write_progress_bar_disabled() {
-        let pb = setup_write_progress_bar(false);
+        let pb = setup_write_progress_bar(false).unwrap();
         // Should create a hidden progress bar
         pb.finish_and_clear();
     }

@@ -94,6 +94,64 @@ struct CompileCommand {
     file: String,
 }
 
+/// State tracking for MSBuild log processing
+#[derive(Debug)]
+struct ProcessingState {
+    /// Maps output prefix (e.g., "7>") to the project being built
+    prefix_to_project: std::collections::HashMap<u32, ProjectContext>,
+    /// Current project context (for sequential builds or fallback)
+    current_project: Option<ProjectContext>,
+    /// Current output prefix being processed
+    current_prefix: Option<u32>,
+    /// Total number of compile commands found
+    command_count: usize,
+}
+
+impl ProcessingState {
+    fn new() -> Self {
+        Self {
+            prefix_to_project: std::collections::HashMap::new(),
+            current_project: None,
+            current_prefix: None,
+            command_count: 0,
+        }
+    }
+
+    /// Get the active project context based on current prefix or fallback
+    fn get_active_project(&self) -> Option<&ProjectContext> {
+        if let Some(prefix) = self.current_prefix {
+            // Try prefix-aware mapping first (parallel builds)
+            self.prefix_to_project
+                .get(&prefix)
+                .or(self.current_project.as_ref())
+        } else {
+            // Sequential build: use current_project
+            self.current_project.as_ref()
+        }
+    }
+}
+
+/// Bundle of compiled regex patterns for log parsing
+struct LogPatterns {
+    node_prefix: Regex,
+    project_on_node: Regex,
+    nested_project: Regex,
+    from_project: Regex,
+    compile_command: Regex,
+}
+
+impl LogPatterns {
+    fn new() -> Result<Self> {
+        Ok(Self {
+            node_prefix: node_prefix_pattern()?,
+            project_on_node: project_on_node_pattern()?,
+            nested_project: nested_project_pattern()?,
+            from_project: from_project_pattern()?,
+            compile_command: compile_command_pattern()?,
+        })
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Command Line Parsing
 // ----------------------------------------------------------------------------
@@ -331,35 +389,13 @@ fn compile_command_pattern() -> Result<Regex> {
     Regex::new(pattern).context("Failed to compile CL.exe command regex")
 }
 
-/// Process the MSBuild log file using the hybrid algorithm
-/// Tracks projects per output prefix for parallel builds and uses context markers
-/// for sequential builds
-fn process_msbuild_log(
-    input_file: &Path,
-    node_prefix: Regex,
-    project_on_node: Regex,
-    nested_project: Regex,
-    from_project: Regex,
-    compile_command: Regex,
-    show_progress: bool,
-) -> Result<Vec<CompileCommand>> {
-    use std::collections::HashMap;
+// ----------------------------------------------------------------------------
+// Log Processing Helper Functions
+// ----------------------------------------------------------------------------
 
-    let mut compile_commands = Vec::new();
-    let mut prefix_to_project: HashMap<u32, ProjectContext> = HashMap::new();
-    let mut current_project: Option<ProjectContext> = None;
-    let mut current_prefix: Option<u32> = None;
-    let mut command_count = 0;
-
-    info!("Starting MSBuild log processing (hybrid algorithm)");
-
-    // Open file and get size for progress tracking
-    let file = File::open(input_file)
-        .with_context(|| format!("Failed to open input file: {}", input_file.display()))?;
-    let file_size = file.metadata()?.len();
-
-    // Create progress bar if enabled
-    let pb = if show_progress {
+/// Setup and configure the progress bar for reading the build log
+fn setup_read_progress_bar(show_progress: bool, file_size: u64) -> ProgressBar {
+    if show_progress {
         let pb = ProgressBar::new(file_size);
         pb.set_style(
             ProgressStyle::default_bar()
@@ -371,7 +407,228 @@ fn process_msbuild_log(
         pb
     } else {
         ProgressBar::hidden()
-    };
+    }
+}
+
+/// Setup and configure the spinner progress bar for writing output
+fn setup_write_progress_bar(show_progress: bool) -> ProgressBar {
+    if show_progress {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("[{elapsed_precise}] {spinner:.cyan} {bytes} {msg}")
+                .unwrap()
+                .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ "),
+        );
+        pb.set_message("Writing output...");
+        pb.enable_steady_tick(Duration::from_millis(100));
+        pb
+    } else {
+        ProgressBar::hidden()
+    }
+}
+
+/// Finalize processing and log summary information
+fn finalize_processing(state: &ProcessingState, pb: ProgressBar) {
+    pb.finish_and_clear();
+
+    info!(
+        "Processing complete: {} unique output prefixes, {} compile commands",
+        state.prefix_to_project.len(),
+        state.command_count
+    );
+
+    if state.prefix_to_project.is_empty() && state.current_project.is_none() {
+        warn!(
+            "No projects found in build log - ensure MSBuild was run with /v:detailed or /v:diagnostic"
+        );
+    }
+
+    if !state.prefix_to_project.is_empty() && state.command_count == 0 {
+        warn!(
+            "Found {} output prefixes with projects but no compile commands - build log may be incomplete",
+            state.prefix_to_project.len()
+        );
+    }
+}
+
+/// Handle node prefix pattern (e.g., "7>")
+fn handle_node_prefix(
+    line: &str,
+    pattern: &Regex,
+    state: &mut ProcessingState,
+    line_number: usize,
+) {
+    if let Some(caps) = pattern.captures(line)
+        && let Ok(prefix_num) = caps[1].parse::<u32>()
+    {
+        state.current_prefix = Some(prefix_num);
+        trace!(
+            "Switched to output prefix {} at line {}",
+            prefix_num, line_number
+        );
+    }
+}
+
+/// Handle "Project X on node N" pattern (parallel builds)
+fn handle_project_on_node(
+    line: &str,
+    pattern: &Regex,
+    state: &mut ProcessingState,
+    line_number: usize,
+) -> Result<()> {
+    if let Some(caps) = pattern.captures(line) {
+        let prefix_num = caps[1]
+            .parse::<u32>()
+            .context("Failed to parse output prefix")?;
+        let project_path = PathBuf::from(&caps[2]);
+        let project_dir = project_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let ctx = ProjectContext {
+            project_path: project_path.clone(),
+            project_dir,
+        };
+
+        trace!(
+            "Assigned project {} to output prefix {} at line {}",
+            project_path.display(),
+            prefix_num,
+            line_number
+        );
+
+        state.prefix_to_project.insert(prefix_num, ctx.clone());
+        // Also update current_project as fallback for sequential builds
+        state.current_project = Some(ctx);
+    }
+    Ok(())
+}
+
+/// Handle nested "Project X is building Y on node N" pattern
+fn handle_nested_project(
+    line: &str,
+    pattern: &Regex,
+    state: &mut ProcessingState,
+    line_number: usize,
+) -> Result<()> {
+    if let Some(caps) = pattern.captures(line) {
+        let project_path = PathBuf::from(&caps[1]);
+        let prefix_num = caps[2]
+            .parse::<u32>()
+            .context("Failed to parse nested project output prefix")?;
+        let project_dir = project_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let ctx = ProjectContext {
+            project_path: project_path.clone(),
+            project_dir,
+        };
+
+        trace!(
+            "Assigned nested project {} to output prefix {} at line {}",
+            project_path.display(),
+            prefix_num,
+            line_number
+        );
+
+        state.prefix_to_project.insert(prefix_num, ctx.clone());
+        // Also update current_project as fallback
+        state.current_project = Some(ctx);
+    }
+    Ok(())
+}
+
+/// Handle "from project X" pattern (sequential builds)
+fn handle_from_project(
+    line: &str,
+    pattern: &Regex,
+    state: &mut ProcessingState,
+    line_number: usize,
+) {
+    if let Some(caps) = pattern.captures(line) {
+        let project_path = PathBuf::from(&caps[1]);
+        let project_dir = project_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let ctx = ProjectContext {
+            project_path: project_path.clone(),
+            project_dir,
+        };
+
+        trace!(
+            "Set current project to {} at line {}",
+            project_path.display(),
+            line_number
+        );
+
+        state.current_project = Some(ctx);
+    }
+}
+
+/// Handle CL.exe compilation command
+fn handle_cl_command(
+    line: &str,
+    pattern: &Regex,
+    state: &ProcessingState,
+    line_number: usize,
+    pb: &ProgressBar,
+) -> Result<Vec<CompileCommand>> {
+    if !pattern.is_match(line) {
+        return Ok(Vec::new());
+    }
+
+    // Determine which project this command belongs to
+    let project_ctx = state.get_active_project();
+
+    if let Some(proj_ctx) = project_ctx {
+        match parse_cl_command(line, proj_ctx, line_number) {
+            Ok(commands) => Ok(commands),
+            Err(e) => {
+                pb.suspend(|| {
+                    error!(
+                        "Failed to parse CL.exe command at line {}: {:?}",
+                        line_number, e
+                    );
+                });
+                Ok(Vec::new())
+            }
+        }
+    } else {
+        pb.suspend(|| {
+            warn!(
+                "Found CL.exe command at line {} but no project context available",
+                line_number
+            );
+        });
+        Ok(Vec::new())
+    }
+}
+
+/// Process the MSBuild log file. Tracks projects per output prefix for parallel
+/// builds and uses context markers for sequential builds
+fn process_msbuild_log(
+    input_file: &Path,
+    patterns: LogPatterns,
+    show_progress: bool,
+) -> Result<Vec<CompileCommand>> {
+    let mut compile_commands = Vec::new();
+    let mut state = ProcessingState::new();
+
+    info!("Starting MSBuild log processing");
+
+    // Open file and get size for progress tracking
+    let file = File::open(input_file)
+        .with_context(|| format!("Failed to open input file: {}", input_file.display()))?;
+    let file_size = file.metadata()?.len();
+
+    // Create progress bar
+    let pb = setup_read_progress_bar(show_progress, file_size);
 
     // Wrap file with progress tracking
     let progress_reader = pb.wrap_read(file);
@@ -391,153 +648,50 @@ fn process_msbuild_log(
             }
         };
 
-        // 1. Check for output prefix (e.g., "7>")
-        if let Some(caps) = node_prefix.captures(&line)
-            && let Ok(prefix_num) = caps[1].parse::<u32>()
+        // Process each pattern type
+        handle_node_prefix(&line, &patterns.node_prefix, &mut state, line_number);
+
+        if let Err(e) =
+            handle_project_on_node(&line, &patterns.project_on_node, &mut state, line_number)
         {
-            current_prefix = Some(prefix_num);
-            trace!(
-                "Switched to output prefix {} at line {}",
-                prefix_num, line_number
-            );
+            pb.suspend(|| {
+                error!(
+                    "Failed to process project-on-node at line {}: {:?}",
+                    line_number, e
+                );
+            });
         }
 
-        // 2. Check for "Project X on node N" pattern (parallel builds)
-        if let Some(caps) = project_on_node.captures(&line) {
-            let prefix_num = caps[1]
-                .parse::<u32>()
-                .context("Failed to parse output prefix")?;
-            let project_path = PathBuf::from(&caps[2]);
-            let project_dir = project_path
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| PathBuf::from("."));
-
-            let ctx = ProjectContext {
-                project_path: project_path.clone(),
-                project_dir,
-            };
-
-            trace!(
-                "Assigned project {} to output prefix {} at line {}",
-                project_path.display(),
-                prefix_num,
-                line_number
-            );
-
-            prefix_to_project.insert(prefix_num, ctx.clone());
-            // Also update current_project as fallback for sequential builds
-            current_project = Some(ctx);
+        if let Err(e) =
+            handle_nested_project(&line, &patterns.nested_project, &mut state, line_number)
+        {
+            pb.suspend(|| {
+                error!(
+                    "Failed to process nested project at line {}: {:?}",
+                    line_number, e
+                );
+            });
         }
 
-        // 2b. Check for nested "Project X is building Y on node N" pattern (parallel builds with dependencies)
-        if let Some(caps) = nested_project.captures(&line) {
-            let project_path = PathBuf::from(&caps[1]);
-            let prefix_num = caps[2]
-                .parse::<u32>()
-                .context("Failed to parse nested project output prefix")?;
-            let project_dir = project_path
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| PathBuf::from("."));
+        handle_from_project(&line, &patterns.from_project, &mut state, line_number);
 
-            let ctx = ProjectContext {
-                project_path: project_path.clone(),
-                project_dir,
-            };
-
-            trace!(
-                "Assigned nested project {} to output prefix {} at line {}",
-                project_path.display(),
-                prefix_num,
-                line_number
-            );
-
-            prefix_to_project.insert(prefix_num, ctx.clone());
-            // Also update current_project as fallback
-            current_project = Some(ctx);
-        }
-
-        // 3. Check for "from project X" pattern
-        if let Some(caps) = from_project.captures(&line) {
-            let project_path = PathBuf::from(&caps[1]);
-            let project_dir = project_path
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| PathBuf::from("."));
-
-            let ctx = ProjectContext {
-                project_path: project_path.clone(),
-                project_dir,
-            };
-
-            trace!(
-                "Set current project to {} at line {}",
-                project_path.display(),
-                line_number
-            );
-
-            current_project = Some(ctx);
-        }
-
-        // 4. Check for CL.exe command
-        if compile_command.is_match(&line) {
-            // Determine which project this command belongs to
-            // Strategy: Try prefix-aware first, fall back to current_project
-            let project_ctx = if let Some(prefix) = current_prefix {
-                // Try prefix-aware mapping first (parallel builds)
-                prefix_to_project.get(&prefix).or(current_project.as_ref())
-            } else {
-                // Sequential build: use current_project
-                current_project.as_ref()
-            };
-
-            if let Some(proj_ctx) = project_ctx {
-                match parse_cl_command(&line, proj_ctx, line_number) {
-                    Ok(commands) => {
-                        command_count += commands.len();
-                        compile_commands.extend(commands);
-                    }
-                    Err(e) => {
-                        pb.suspend(|| {
-                            error!(
-                                "Failed to parse CL.exe command at line {}: {:?}",
-                                line_number, e
-                            );
-                        });
-                    }
-                }
-            } else {
+        match handle_cl_command(&line, &patterns.compile_command, &state, line_number, &pb) {
+            Ok(commands) => {
+                state.command_count += commands.len();
+                compile_commands.extend(commands);
+            }
+            Err(e) => {
                 pb.suspend(|| {
-                    warn!(
-                        "Found CL.exe command at line {} but no project context available",
-                        line_number
+                    error!(
+                        "Failed to handle CL command at line {}: {:?}",
+                        line_number, e
                     );
                 });
             }
         }
     }
 
-    pb.finish_and_clear();
-
-    info!(
-        "Processing complete: {} unique output prefixes, {} compile commands",
-        prefix_to_project.len(),
-        command_count
-    );
-
-    if prefix_to_project.is_empty() && current_project.is_none() {
-        warn!(
-            "No projects found in build log - ensure MSBuild was run with /v:detailed or /v:diagnostic"
-        );
-    }
-
-    if !prefix_to_project.is_empty() && command_count == 0 {
-        warn!(
-            "Found {} output prefixes with projects but no compile commands - build log may be incomplete",
-            prefix_to_project.len()
-        );
-    }
+    finalize_processing(&state, pb);
 
     Ok(compile_commands)
 }
@@ -582,15 +736,8 @@ fn run() -> Result<()> {
         && atty::is(atty::Stream::Stderr);
 
     // Process the MSBuild log file
-    let compile_commands = process_msbuild_log(
-        &args.input_file,
-        node_prefix_pattern()?,
-        project_on_node_pattern()?,
-        nested_project_pattern()?,
-        from_project_pattern()?,
-        compile_command_pattern()?,
-        show_progress,
-    )?;
+    let patterns = LogPatterns::new()?;
+    let compile_commands = process_msbuild_log(&args.input_file, patterns, show_progress)?;
 
     // Write JSON output
     info!(
@@ -600,20 +747,7 @@ fn run() -> Result<()> {
     );
 
     // Create progress spinner for write operation if enabled
-    let write_pb = if show_progress {
-        let pb = ProgressBar::new_spinner();
-        pb.set_style(
-            ProgressStyle::default_spinner()
-                .template("[{elapsed_precise}] {spinner:.cyan} {bytes} {msg}")
-                .unwrap()
-                .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ "),
-        );
-        pb.set_message("Writing output...");
-        pb.enable_steady_tick(Duration::from_millis(100));
-        pb
-    } else {
-        ProgressBar::hidden()
-    };
+    let write_pb = setup_write_progress_bar(show_progress);
 
     // Wrap output with progress tracking
     let progress_writer = write_pb.wrap_write(output);
@@ -1149,5 +1283,214 @@ mod tests {
         assert!(!is_source_file("executable.exe"));
         assert!(!is_source_file("archive.a"));
         assert!(!is_source_file("README.md"));
+    }
+
+    // ----------------------------------------------------------------------------
+    // Tests for handler functions
+    // ----------------------------------------------------------------------------
+
+    #[test]
+    fn test_handle_node_prefix_valid() {
+        let mut state = ProcessingState::new();
+        let pattern = node_prefix_pattern().unwrap();
+
+        handle_node_prefix("  7>Project ...", &pattern, &mut state, 100);
+
+        assert_eq!(state.current_prefix, Some(7));
+    }
+
+    #[test]
+    fn test_handle_node_prefix_no_match() {
+        let mut state = ProcessingState::new();
+        let pattern = node_prefix_pattern().unwrap();
+
+        handle_node_prefix("Project without prefix", &pattern, &mut state, 100);
+
+        assert_eq!(state.current_prefix, None);
+    }
+
+    #[test]
+    fn test_handle_project_on_node_parallel_build() {
+        let mut state = ProcessingState::new();
+        let pattern = project_on_node_pattern().unwrap();
+        let line = r#"4>Project "C:\path\to\project.vcxproj" on node 3 (Build target(s))."#;
+
+        let result = handle_project_on_node(line, &pattern, &mut state, 100);
+
+        assert!(result.is_ok());
+        assert_eq!(state.prefix_to_project.len(), 1);
+        assert!(state.prefix_to_project.contains_key(&4));
+        assert!(state.current_project.is_some());
+        assert_eq!(
+            state.prefix_to_project.get(&4).unwrap().project_path,
+            PathBuf::from(r"C:\path\to\project.vcxproj")
+        );
+    }
+
+    #[test]
+    fn test_handle_nested_project_pattern() {
+        let mut state = ProcessingState::new();
+        let pattern = nested_project_pattern().unwrap();
+        let line = r#"    44>Project "S:\Acme\corp\src\foo\baz.proj" (44) is building "S:\Acme\corp\src\foo\bar.vcxproj" (54) on node 13 (default targets)."#;
+
+        let result = handle_nested_project(line, &pattern, &mut state, 100);
+
+        assert!(result.is_ok());
+        assert_eq!(state.prefix_to_project.len(), 1);
+        assert!(state.prefix_to_project.contains_key(&54));
+        assert_eq!(
+            state.prefix_to_project.get(&54).unwrap().project_path,
+            PathBuf::from(r"S:\Acme\corp\src\foo\bar.vcxproj")
+        );
+    }
+
+    #[test]
+    fn test_handle_from_project_sequential_build() {
+        let mut state = ProcessingState::new();
+        let pattern = from_project_pattern().unwrap();
+        let line = r#"Target "ClCompile" from project "C:\path\to\project.vcxproj""#;
+
+        handle_from_project(line, &pattern, &mut state, 100);
+
+        assert!(state.current_project.is_some());
+        assert_eq!(
+            state.current_project.as_ref().unwrap().project_path,
+            PathBuf::from(r"C:\path\to\project.vcxproj")
+        );
+    }
+
+    #[test]
+    fn test_handle_cl_command_with_context() {
+        let mut state = ProcessingState::new();
+        state.current_project = Some(ProjectContext {
+            project_path: PathBuf::from(r"C:\project\test.vcxproj"),
+            project_dir: PathBuf::from(r"C:\project"),
+        });
+
+        let pattern = compile_command_pattern().unwrap();
+        let line = r#"  C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\CL.exe /c main.cpp"#;
+        let pb = ProgressBar::hidden();
+
+        let result = handle_cl_command(line, &pattern, &state, 100, &pb);
+
+        assert!(result.is_ok());
+        let commands = result.unwrap();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].file, r"C:\project\main.cpp");
+    }
+
+    #[test]
+    fn test_handle_cl_command_no_context() {
+        let state = ProcessingState::new();
+        let pattern = compile_command_pattern().unwrap();
+        let line = r#"  CL.exe /c main.cpp"#;
+        let pb = ProgressBar::hidden();
+
+        let result = handle_cl_command(line, &pattern, &state, 100, &pb);
+
+        assert!(result.is_ok());
+        let commands = result.unwrap();
+        assert_eq!(commands.len(), 0); // No commands when no context
+    }
+
+    #[test]
+    fn test_handle_cl_command_no_match() {
+        let state = ProcessingState::new();
+        let pattern = compile_command_pattern().unwrap();
+        let line = r#"This is not a CL.exe command"#;
+        let pb = ProgressBar::hidden();
+
+        let result = handle_cl_command(line, &pattern, &state, 100, &pb);
+
+        assert!(result.is_ok());
+        let commands = result.unwrap();
+        assert_eq!(commands.len(), 0);
+    }
+
+    #[test]
+    fn test_processing_state_get_active_project_with_prefix() {
+        let mut state = ProcessingState::new();
+        let ctx = ProjectContext {
+            project_path: PathBuf::from(r"C:\prefix\project.vcxproj"),
+            project_dir: PathBuf::from(r"C:\prefix"),
+        };
+        state.prefix_to_project.insert(7, ctx.clone());
+        state.current_prefix = Some(7);
+
+        let active = state.get_active_project();
+
+        assert!(active.is_some());
+        assert_eq!(
+            active.unwrap().project_path,
+            PathBuf::from(r"C:\prefix\project.vcxproj")
+        );
+    }
+
+    #[test]
+    fn test_processing_state_get_active_project_fallback() {
+        let mut state = ProcessingState::new();
+        state.current_project = Some(ProjectContext {
+            project_path: PathBuf::from(r"C:\fallback\project.vcxproj"),
+            project_dir: PathBuf::from(r"C:\fallback"),
+        });
+        state.current_prefix = Some(99); // Prefix not in map
+
+        let active = state.get_active_project();
+
+        assert!(active.is_some());
+        assert_eq!(
+            active.unwrap().project_path,
+            PathBuf::from(r"C:\fallback\project.vcxproj")
+        );
+    }
+
+    #[test]
+    fn test_processing_state_get_active_project_no_prefix() {
+        let mut state = ProcessingState::new();
+        state.current_project = Some(ProjectContext {
+            project_path: PathBuf::from(r"C:\sequential\project.vcxproj"),
+            project_dir: PathBuf::from(r"C:\sequential"),
+        });
+
+        let active = state.get_active_project();
+
+        assert!(active.is_some());
+        assert_eq!(
+            active.unwrap().project_path,
+            PathBuf::from(r"C:\sequential\project.vcxproj")
+        );
+    }
+
+    // ----------------------------------------------------------------------------
+    // Tests for progress bar setup functions
+    // ----------------------------------------------------------------------------
+
+    #[test]
+    fn test_setup_read_progress_bar_enabled() {
+        let pb = setup_read_progress_bar(true, 1000);
+        // Should create a visible progress bar (not hidden)
+        // We can't directly test visibility, but we can verify it doesn't panic
+        pb.finish_and_clear();
+    }
+
+    #[test]
+    fn test_setup_read_progress_bar_disabled() {
+        let pb = setup_read_progress_bar(false, 1000);
+        // Should create a hidden progress bar
+        pb.finish_and_clear();
+    }
+
+    #[test]
+    fn test_setup_write_progress_bar_enabled() {
+        let pb = setup_write_progress_bar(true);
+        // Should create a visible spinner
+        pb.finish_and_clear();
+    }
+
+    #[test]
+    fn test_setup_write_progress_bar_disabled() {
+        let pb = setup_write_progress_bar(false);
+        // Should create a hidden progress bar
+        pb.finish_and_clear();
     }
 }

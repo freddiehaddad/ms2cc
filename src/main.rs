@@ -346,29 +346,31 @@ fn parse_cl_command(
 // Regular Expression Patterns
 // ----------------------------------------------------------------------------
 
-/// Pattern to match node prefix (e.g., "7>" at start of line)
+/// Pattern to match node prefix (e.g., "7>" or "7:2>" at start of line)
 /// Used to track the current build node in parallel builds
+/// Handles both simple prefixes (7>) and multi-instance prefixes (7:2>)
 fn node_prefix_pattern() -> Result<Regex> {
-    let pattern = r"^\s*(\d+)>";
+    let pattern = r"^\s*(\d+)(?::\d+)?>";
     debug!("Compiling node prefix regex: {}", pattern);
     Regex::new(pattern).context("Failed to compile node prefix regex")
 }
 
 /// Pattern to match "Project X on node N" (parallel builds)
 /// Example: 5>Project "S:\Acme\...\Project.vcxproj" on node 4 (Build target(s)).
-/// Captures the OUTPUT PREFIX (5>) and PROJECT PATH, not the physical node number
+/// Also handles multi-instance prefixes like 5:2>Project ...
+/// Captures the OUTPUT PREFIX (5 or 5:2) and PROJECT PATH, not the physical node number
 fn project_on_node_pattern() -> Result<Regex> {
-    let pattern = r#"^\s*(\d+)>Project "([^"]+\.vcxproj)" on node \d+"#;
+    let pattern = r#"^\s*(\d+)(?::\d+)?>Project "([^"]+\.vcxproj)" on node \d+"#;
     debug!("Compiling project-on-node regex: {}", pattern);
     Regex::new(pattern).context("Failed to compile project-on-node regex")
 }
 
 /// Pattern to match nested "Project X is building Y on node N" (parallel builds with dependencies)
 /// Example: 44>Project "Parent.proj" (44) is building "Child.vcxproj" (54) on node 13 (default targets).
-/// Captures the CHILD PROJECT PATH and CHILD OUTPUT PREFIX (which is used for subsequent output)
+/// Also handles multi-instance notation: 44:2>Project "..." (44:2) is building "..." (54:3) on node 13
+/// Captures the CHILD PROJECT PATH and CHILD OUTPUT PREFIX (base number only, e.g., 54 from 54:3)
 fn nested_project_pattern() -> Result<Regex> {
-    let pattern =
-        r#"^\s*\d+>Project "[^"]*" \(\d+\) is building "([^"]+\.vcxproj)" \((\d+)\) on node \d+"#;
+    let pattern = r#"^\s*\d+(?::\d+)?>Project "[^"]*" \([^\)]+\) is building "([^"]+\.vcxproj)" \((\d+)(?::\d+)?\) on node \d+"#;
     debug!("Compiling nested-project regex: {}", pattern);
     Regex::new(pattern).context("Failed to compile nested-project regex")
 }
@@ -802,6 +804,12 @@ mod tests {
         // Extract node number
         let caps = re.captures("  4>Project").unwrap();
         assert_eq!(&caps[1], "4");
+
+        // Test multi-instance prefix notation (e.g., "53:20>")
+        assert!(re.is_match("53:20>Project ..."));
+        assert!(re.is_match("  7:2>Something"));
+        let caps = re.captures("53:20>ClCompile").unwrap();
+        assert_eq!(&caps[1], "53"); // Should capture base number only
     }
 
     #[test]
@@ -817,6 +825,14 @@ mod tests {
         let caps = re.captures(line2).expect("Should match path with spaces");
         assert_eq!(&caps[1], "7"); // Output prefix
         assert_eq!(&caps[2], r#"S:\My Project\test.vcxproj"#); // Project path
+
+        // Test multi-instance prefix notation
+        let line3 = r#"  53:20>Project "S:\Azure\test.vcxproj" on node 30 (default targets)."#;
+        let caps = re
+            .captures(line3)
+            .expect("Should match multi-instance prefix");
+        assert_eq!(&caps[1], "53"); // Base prefix number
+        assert_eq!(&caps[2], r#"S:\Azure\test.vcxproj"#); // Project path
     }
 
     #[test]
@@ -835,6 +851,22 @@ mod tests {
         let caps = re.captures(line2).expect("Should match nested with spaces");
         assert_eq!(&caps[1], r#"C:\My Projects\Child.vcxproj"#); // Child project path
         assert_eq!(&caps[2], "25"); // Child output prefix
+
+        // Test multi-instance prefix notation
+        let line3 = r#" 53:20>Project "S:\Azure\Parent.csproj" (53:20) is building "S:\Azure\XStoreUlsNative.vcxproj" (246) on node 30 (default targets)."#;
+        let caps = re
+            .captures(line3)
+            .expect("Should match multi-instance parent prefix");
+        assert_eq!(&caps[1], r#"S:\Azure\XStoreUlsNative.vcxproj"#); // Child project path
+        assert_eq!(&caps[2], "246"); // Child output prefix (base number)
+
+        // Test multi-instance for both parent and child
+        let line4 = r#" 264:105>Project "S:\Azure\Parent.vcxproj" (264:105) is building "S:\Azure\Child.vcxproj" (266:5) on node 28 (BuiltProjectOutputGroup target(s))."#;
+        let caps = re
+            .captures(line4)
+            .expect("Should match multi-instance both prefixes");
+        assert_eq!(&caps[1], r#"S:\Azure\Child.vcxproj"#); // Child project path
+        assert_eq!(&caps[2], "266"); // Child output prefix (base number only)
     }
 
     #[test]

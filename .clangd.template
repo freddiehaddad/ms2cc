@@ -32,9 +32,13 @@ Diagnostics:
 # use --driver-mode=cl when it sees MSVC-style flags.
 #
 # Uncomment to add or remove compiler flags if needed:
-# CompileFlags:
-#   Add:
-#     - "-std=c++20"
+CompileFlags:
+  Add:
+#    - "-std=c++20"
+    - "-ferror-limit=0"              # No limit
+    - "-fdelayed-template-parsing"   # MSVC-style template parsing
+    - "-fms-compatibility"           # Enable MSVC compatibility
+    - "-fms-extensions"              # Enable MSVC extensions
 #   Remove:
 #     - "/some-problematic-flag"
 

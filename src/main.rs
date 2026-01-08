@@ -9,7 +9,7 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter},
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 // ----------------------------------------------------------------------------
@@ -349,8 +349,6 @@ fn parse_cl_command(
             // Clean include paths to remove trailing backslashes
             let cleaned_token = clean_include_path(&token);
             filtered_args.push(cleaned_token);
-        } else {
-            trace!("Filtered PCH flag at line {}: {}", line_number, token);
         }
     }
 
@@ -396,7 +394,7 @@ fn parse_cl_command(
         });
     }
 
-    debug!(
+    trace!(
         "Parsed {} compile command(s) from line {} for project {}",
         commands.len(),
         line_number,
@@ -497,13 +495,26 @@ fn setup_write_progress_bar(show_progress: bool, multi: &MultiProgress) -> Resul
 }
 
 /// Finalize processing and log summary information
-fn finalize_processing(state: &ProcessingState, pb: ProgressBar) {
+fn finalize_processing(state: &ProcessingState, pb: ProgressBar, start_time: Instant) {
     pb.finish_and_clear();
 
+    let duration = start_time.elapsed();
+
+    debug!(
+        "Found {} projects across {} output prefixes",
+        state.prefix_to_project.len()
+            + if state.current_project.is_some() {
+                1
+            } else {
+                0
+            },
+        state.prefix_to_project.len()
+    );
+
     info!(
-        "Processing complete: {} unique output prefixes, {} compile commands",
-        state.prefix_to_project.len(),
-        state.command_count
+        "Processing complete: {} compile commands found in {:.2}s",
+        state.command_count,
+        duration.as_secs_f64()
     );
 
     if state.prefix_to_project.is_empty() && state.current_project.is_none() {
@@ -521,20 +532,11 @@ fn finalize_processing(state: &ProcessingState, pb: ProgressBar) {
 }
 
 /// Handle node prefix pattern (e.g., "7>")
-fn handle_node_prefix(
-    line: &str,
-    pattern: &Regex,
-    state: &mut ProcessingState,
-    line_number: usize,
-) {
+fn handle_node_prefix(line: &str, pattern: &Regex, state: &mut ProcessingState) {
     if let Some(caps) = pattern.captures(line)
         && let Ok(prefix_num) = caps[1].parse::<u32>()
     {
         state.current_prefix = Some(prefix_num);
-        trace!(
-            "Switched to output prefix {} at line {}",
-            prefix_num, line_number
-        );
     }
 }
 
@@ -685,6 +687,7 @@ fn process_msbuild_log(
     let mut state = ProcessingState::new();
 
     info!("Starting MSBuild log processing");
+    let start_time = Instant::now();
 
     // Open file and get size for progress tracking
     let file = File::open(input_file)
@@ -711,7 +714,7 @@ fn process_msbuild_log(
         };
 
         // Process each pattern type
-        handle_node_prefix(&line, &patterns.node_prefix, &mut state, line_number);
+        handle_node_prefix(&line, &patterns.node_prefix, &mut state);
 
         if let Err(e) =
             handle_project_on_node(&line, &patterns.project_on_node, &mut state, line_number)
@@ -747,7 +750,7 @@ fn process_msbuild_log(
         }
     }
 
-    finalize_processing(&state, pb);
+    finalize_processing(&state, pb, start_time);
 
     Ok(compile_commands)
 }
@@ -1449,7 +1452,7 @@ mod tests {
         let mut state = ProcessingState::new();
         let pattern = node_prefix_pattern().unwrap();
 
-        handle_node_prefix("  7>Project ...", &pattern, &mut state, 100);
+        handle_node_prefix("  7>Project ...", &pattern, &mut state);
 
         assert_eq!(state.current_prefix, Some(7));
     }
@@ -1459,7 +1462,7 @@ mod tests {
         let mut state = ProcessingState::new();
         let pattern = node_prefix_pattern().unwrap();
 
-        handle_node_prefix("Project without prefix", &pattern, &mut state, 100);
+        handle_node_prefix("Project without prefix", &pattern, &mut state);
 
         assert_eq!(state.current_prefix, None);
     }

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{LevelFilter, debug, error, info, trace, warn};
 use regex::Regex;
 use simplelog::*;
@@ -255,23 +255,24 @@ fn clean_include_path(flag: &str) -> String {
     if flag.starts_with("/I\"") || flag.starts_with("/i\"") {
         // Quoted path: /I"path\\"
         if let Some(end_quote_pos) = flag.rfind('"')
-            && end_quote_pos > 3 {
-                // More than just /I"<quote>
-                let prefix = &flag[..3]; // /I"
-                let path = &flag[3..end_quote_pos]; // The actual path
-                let suffix = &flag[end_quote_pos..]; // Closing "
+            && end_quote_pos > 3
+        {
+            // More than just /I"<quote>
+            let prefix = &flag[..3]; // /I"
+            let path = &flag[3..end_quote_pos]; // The actual path
+            let suffix = &flag[end_quote_pos..]; // Closing "
 
-                // Remove trailing backslashes from path
-                // But preserve at least one backslash if it's a root path like "C:\"
-                let cleaned_path = if path.len() == 3 && path.ends_with(":\\") {
-                    // Root path like "C:\" - keep it
-                    path
-                } else {
-                    path.trim_end_matches('\\')
-                };
+            // Remove trailing backslashes from path
+            // But preserve at least one backslash if it's a root path like "C:\"
+            let cleaned_path = if path.len() == 3 && path.ends_with(":\\") {
+                // Root path like "C:\" - keep it
+                path
+            } else {
+                path.trim_end_matches('\\')
+            };
 
-                return format!("{}{}{}", prefix, cleaned_path, suffix);
-            }
+            return format!("{}{}{}", prefix, cleaned_path, suffix);
+        }
     } else if flag.len() > 2 {
         // Unquoted path: /Ipath\
         let prefix = &flag[..2]; // /I
@@ -459,9 +460,13 @@ fn compile_command_pattern() -> Result<Regex> {
 // ----------------------------------------------------------------------------
 
 /// Setup and configure the progress bar for reading the build log
-fn setup_read_progress_bar(show_progress: bool, file_size: u64) -> Result<ProgressBar> {
+fn setup_read_progress_bar(
+    show_progress: bool,
+    file_size: u64,
+    multi: &MultiProgress,
+) -> Result<ProgressBar> {
     if show_progress {
-        let pb = ProgressBar::new(file_size);
+        let pb = multi.add(ProgressBar::new(file_size));
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")?
@@ -475,9 +480,9 @@ fn setup_read_progress_bar(show_progress: bool, file_size: u64) -> Result<Progre
 }
 
 /// Setup and configure the spinner progress bar for writing output
-fn setup_write_progress_bar(show_progress: bool) -> Result<ProgressBar> {
+fn setup_write_progress_bar(show_progress: bool, multi: &MultiProgress) -> Result<ProgressBar> {
     if show_progress {
-        let pb = ProgressBar::new_spinner();
+        let pb = multi.add(ProgressBar::new_spinner());
         pb.set_style(
             ProgressStyle::default_spinner()
                 .template("[{elapsed_precise}] {spinner:.cyan} {bytes} {msg}")?
@@ -640,7 +645,6 @@ fn handle_cl_command(
     pattern: &Regex,
     state: &ProcessingState,
     line_number: usize,
-    pb: &ProgressBar,
 ) -> Result<Vec<CompileCommand>> {
     if !pattern.is_match(line) {
         return Ok(Vec::new());
@@ -653,22 +657,18 @@ fn handle_cl_command(
         match parse_cl_command(line, proj_ctx, line_number) {
             Ok(commands) => Ok(commands),
             Err(e) => {
-                pb.suspend(|| {
-                    error!(
-                        "Failed to parse CL.exe command at line {}: {:?}",
-                        line_number, e
-                    );
-                });
+                error!(
+                    "Failed to parse CL.exe command at line {}: {:?}",
+                    line_number, e
+                );
                 Ok(Vec::new())
             }
         }
     } else {
-        pb.suspend(|| {
-            warn!(
-                "Found CL.exe command at line {} but no project context available",
-                line_number
-            );
-        });
+        warn!(
+            "Found CL.exe command at line {} but no project context available",
+            line_number
+        );
         Ok(Vec::new())
     }
 }
@@ -679,6 +679,7 @@ fn process_msbuild_log(
     input_file: &Path,
     patterns: LogPatterns,
     show_progress: bool,
+    multi: &MultiProgress,
 ) -> Result<Vec<CompileCommand>> {
     let mut compile_commands = Vec::new();
     let mut state = ProcessingState::new();
@@ -691,7 +692,7 @@ fn process_msbuild_log(
     let file_size = file.metadata()?.len();
 
     // Create progress bar
-    let pb = setup_read_progress_bar(show_progress, file_size)?;
+    let pb = setup_read_progress_bar(show_progress, file_size, multi)?;
 
     // Wrap file with progress tracking
     let progress_reader = pb.wrap_read(file);
@@ -704,9 +705,7 @@ fn process_msbuild_log(
         let line = match line_result {
             Ok(l) => l,
             Err(e) => {
-                pb.suspend(|| {
-                    warn!("Failed to read line {}: {:?}", line_number, e);
-                });
+                warn!("Failed to read line {}: {:?}", line_number, e);
                 continue;
             }
         };
@@ -717,39 +716,33 @@ fn process_msbuild_log(
         if let Err(e) =
             handle_project_on_node(&line, &patterns.project_on_node, &mut state, line_number)
         {
-            pb.suspend(|| {
-                error!(
-                    "Failed to process project-on-node at line {}: {:?}",
-                    line_number, e
-                );
-            });
+            error!(
+                "Failed to process project-on-node at line {}: {:?}",
+                line_number, e
+            );
         }
 
         if let Err(e) =
             handle_nested_project(&line, &patterns.nested_project, &mut state, line_number)
         {
-            pb.suspend(|| {
-                error!(
-                    "Failed to process nested project at line {}: {:?}",
-                    line_number, e
-                );
-            });
+            error!(
+                "Failed to process nested project at line {}: {:?}",
+                line_number, e
+            );
         }
 
         handle_from_project(&line, &patterns.from_project, &mut state, line_number);
 
-        match handle_cl_command(&line, &patterns.compile_command, &state, line_number, &pb) {
+        match handle_cl_command(&line, &patterns.compile_command, &state, line_number) {
             Ok(commands) => {
                 state.command_count += commands.len();
                 compile_commands.extend(commands);
             }
             Err(e) => {
-                pb.suspend(|| {
-                    error!(
-                        "Failed to handle CL command at line {}: {:?}",
-                        line_number, e
-                    );
-                });
+                error!(
+                    "Failed to handle CL command at line {}: {:?}",
+                    line_number, e
+                );
             }
         }
     }
@@ -769,7 +762,14 @@ fn open_output_file(path: &Path) -> Result<BufWriter<File>> {
 fn run() -> Result<()> {
     let args = Args::parse();
 
-    // Initialize logging
+    // Determine if progress bar should be shown
+    // Disable only if --no-progress flag is set or output is not a TTY
+    let show_progress = !args.no_progress && atty::is(atty::Stream::Stderr);
+
+    // Create MultiProgress for coordinating progress bars and logging
+    let multi = MultiProgress::new();
+
+    // Initialize logging with indicatif-log-bridge
     let config = ConfigBuilder::new()
         .set_target_level(LevelFilter::Off)
         .set_thread_level(LevelFilter::Off)
@@ -777,30 +777,25 @@ fn run() -> Result<()> {
 
     let log_level_filter: LevelFilter = args.log_level.into();
 
-    TermLogger::init(
+    let logger = TermLogger::new(
         log_level_filter,
         config,
         TerminalMode::Mixed,
         ColorChoice::Auto,
-    )?;
+    );
+
+    indicatif_log_bridge::LogWrapper::new(multi.clone(), logger)
+        .try_init()
+        .context("Failed to initialize logging")?;
 
     info!("ms2cc v{} - {}", PACKAGE_VERSION, PACKAGE_DESCRIPTION);
 
     // Open output file early in case of an error.
     let output = open_output_file(&args.output_file)?;
 
-    // Determine if progress bar should be shown
-    // Disable for: verbose logging (debug/trace), --no-progress flag, or non-TTY output
-    let show_progress = !args.no_progress
-        && matches!(
-            args.log_level,
-            LogLevel::Off | LogLevel::Error | LogLevel::Warn | LogLevel::Info
-        )
-        && atty::is(atty::Stream::Stderr);
-
     // Process the MSBuild log file
     let patterns = LogPatterns::new()?;
-    let compile_commands = process_msbuild_log(&args.input_file, patterns, show_progress)?;
+    let compile_commands = process_msbuild_log(&args.input_file, patterns, show_progress, &multi)?;
 
     // Write JSON output
     info!(
@@ -810,7 +805,7 @@ fn run() -> Result<()> {
     );
 
     // Create progress spinner for write operation if enabled
-    let write_pb = setup_write_progress_bar(show_progress)?;
+    let write_pb = setup_write_progress_bar(show_progress, &multi)?;
 
     // Wrap output with progress tracking
     let progress_writer = write_pb.wrap_write(output);
@@ -1529,9 +1524,8 @@ mod tests {
 
         let pattern = compile_command_pattern().unwrap();
         let line = r#"  C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\CL.exe /c main.cpp"#;
-        let pb = ProgressBar::hidden();
 
-        let result = handle_cl_command(line, &pattern, &state, 100, &pb);
+        let result = handle_cl_command(line, &pattern, &state, 100);
 
         assert!(result.is_ok());
         let commands = result.unwrap();
@@ -1544,9 +1538,8 @@ mod tests {
         let state = ProcessingState::new();
         let pattern = compile_command_pattern().unwrap();
         let line = r#"  CL.exe /c main.cpp"#;
-        let pb = ProgressBar::hidden();
 
-        let result = handle_cl_command(line, &pattern, &state, 100, &pb);
+        let result = handle_cl_command(line, &pattern, &state, 100);
 
         assert!(result.is_ok());
         let commands = result.unwrap();
@@ -1554,13 +1547,12 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_cl_command_no_match() {
+    fn test_handle_cl_command_not_cl_command() {
         let state = ProcessingState::new();
         let pattern = compile_command_pattern().unwrap();
         let line = r#"This is not a CL.exe command"#;
-        let pb = ProgressBar::hidden();
 
-        let result = handle_cl_command(line, &pattern, &state, 100, &pb);
+        let result = handle_cl_command(line, &pattern, &state, 100);
 
         assert!(result.is_ok());
         let commands = result.unwrap();
@@ -1627,7 +1619,8 @@ mod tests {
 
     #[test]
     fn test_setup_read_progress_bar_enabled() {
-        let pb = setup_read_progress_bar(true, 1000).unwrap();
+        let multi = MultiProgress::new();
+        let pb = setup_read_progress_bar(true, 1000, &multi).unwrap();
         // Should create a visible progress bar (not hidden)
         // We can't directly test visibility, but we can verify it doesn't panic
         pb.finish_and_clear();
@@ -1635,21 +1628,24 @@ mod tests {
 
     #[test]
     fn test_setup_read_progress_bar_disabled() {
-        let pb = setup_read_progress_bar(false, 1000).unwrap();
+        let multi = MultiProgress::new();
+        let pb = setup_read_progress_bar(false, 1000, &multi).unwrap();
         // Should create a hidden progress bar
         pb.finish_and_clear();
     }
 
     #[test]
     fn test_setup_write_progress_bar_enabled() {
-        let pb = setup_write_progress_bar(true).unwrap();
+        let multi = MultiProgress::new();
+        let pb = setup_write_progress_bar(true, &multi).unwrap();
         // Should create a visible spinner
         pb.finish_and_clear();
     }
 
     #[test]
     fn test_setup_write_progress_bar_disabled() {
-        let pb = setup_write_progress_bar(false).unwrap();
+        let multi = MultiProgress::new();
+        let pb = setup_write_progress_bar(false, &multi).unwrap();
         // Should create a hidden progress bar
         pb.finish_and_clear();
     }

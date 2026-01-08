@@ -1,6 +1,6 @@
 [package]
 name = "ms2cc"
-version = "2.1.2"
+version = "2.2.0"
 description = "Convert MSBuild logs to compile_commands.json for C/C++ language servers"
 edition = "2024"
 

@@ -232,6 +232,67 @@ fn path_to_normalized_string(path: &Path) -> String {
     normalize_path(path).display().to_string()
 }
 
+/// Clean include path by removing trailing backslashes that can cause
+/// quote-escaping issues in clangd's command-line parser
+///
+/// Examples:
+///   /I"C:\path\to\dir\\" -> /I"C:\path\to\dir"
+///   /I"C:\path\to\dir"   -> /I"C:\path\to\dir" (unchanged)
+///   /IC:\path\to\dir\    -> /IC:\path\to\dir (unquoted form)
+fn clean_include_path(flag: &str) -> String {
+    // Check if this is an include flag
+    let flag_upper = flag.to_uppercase();
+    if !flag_upper.starts_with("/I") {
+        return flag.to_string();
+    }
+
+    // Pattern: /I followed by optional quotes, path, optional trailing backslashes, optional closing quote
+    // Cases to handle:
+    //   /I"C:\path\\"    -> /I"C:\path"
+    //   /IC:\path\       -> /IC:\path
+    //   /I"C:\path"      -> /I"C:\path" (no change)
+
+    if flag.starts_with("/I\"") || flag.starts_with("/i\"") {
+        // Quoted path: /I"path\\"
+        if let Some(end_quote_pos) = flag.rfind('"')
+            && end_quote_pos > 3 {
+                // More than just /I"<quote>
+                let prefix = &flag[..3]; // /I"
+                let path = &flag[3..end_quote_pos]; // The actual path
+                let suffix = &flag[end_quote_pos..]; // Closing "
+
+                // Remove trailing backslashes from path
+                // But preserve at least one backslash if it's a root path like "C:\"
+                let cleaned_path = if path.len() == 3 && path.ends_with(":\\") {
+                    // Root path like "C:\" - keep it
+                    path
+                } else {
+                    path.trim_end_matches('\\')
+                };
+
+                return format!("{}{}{}", prefix, cleaned_path, suffix);
+            }
+    } else if flag.len() > 2 {
+        // Unquoted path: /Ipath\
+        let prefix = &flag[..2]; // /I
+        let path = &flag[2..]; // The path
+
+        // Remove trailing backslashes
+        // But preserve at least one backslash if it's a root path like "C:\"
+        let cleaned_path = if path.len() == 3 && path.ends_with(":\\") {
+            // Root path like "C:\" - keep it
+            path
+        } else {
+            path.trim_end_matches('\\')
+        };
+
+        return format!("{}{}", prefix, cleaned_path);
+    }
+
+    // Fallback: return as-is if pattern doesn't match
+    flag.to_string()
+}
+
 /// Resolve source file path to absolute path
 fn resolve_source_file_path(source_file: &str, working_directory: &Path) -> PathBuf {
     let file_path = PathBuf::from(source_file.trim_matches('"'));
@@ -284,7 +345,9 @@ fn parse_cl_command(
         if is_source_file(&token) {
             source_files.push(token);
         } else if !should_filter_flag(&token) {
-            filtered_args.push(token);
+            // Clean include paths to remove trailing backslashes
+            let cleaned_token = clean_include_path(&token);
+            filtered_args.push(cleaned_token);
         } else {
             trace!("Filtered PCH flag at line {}: {}", line_number, token);
         }
@@ -1161,6 +1224,73 @@ mod tests {
             .command
             .contains(r#""C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64\CL.exe""#));
         assert!(commands[0].command.contains(r"C:\project\main.cpp"));
+    }
+
+    // ----------------------------------------------------------------------------
+    // Tests for clean_include_path()
+    // ----------------------------------------------------------------------------
+
+    #[test]
+    fn test_clean_include_path_quoted_with_trailing_backslash() {
+        assert_eq!(
+            clean_include_path(r#"/I"C:\path\to\dir\\""#),
+            r#"/I"C:\path\to\dir""#
+        );
+    }
+
+    #[test]
+    fn test_clean_include_path_quoted_no_trailing() {
+        assert_eq!(
+            clean_include_path(r#"/I"C:\path\to\dir""#),
+            r#"/I"C:\path\to\dir""#
+        );
+    }
+
+    #[test]
+    fn test_clean_include_path_unquoted_with_trailing() {
+        assert_eq!(
+            clean_include_path(r#"/IC:\path\to\dir\"#),
+            r#"/IC:\path\to\dir"#
+        );
+    }
+
+    #[test]
+    fn test_clean_include_path_multiple_trailing() {
+        assert_eq!(
+            clean_include_path(r#"/I"C:\path\to\dir\\\\\""#),
+            r#"/I"C:\path\to\dir""#
+        );
+    }
+
+    #[test]
+    fn test_clean_include_path_not_include_flag() {
+        assert_eq!(clean_include_path(r#"/Od"#), r#"/Od"#);
+    }
+
+    #[test]
+    fn test_clean_include_path_root_drive() {
+        // Root path like C:\ should be preserved
+        assert_eq!(clean_include_path(r#"/I"C:\""#), r#"/I"C:\""#);
+    }
+
+    #[test]
+    fn test_clean_include_path_lowercase_flag() {
+        // Should work with lowercase /i as well
+        assert_eq!(
+            clean_include_path(r#"/i"C:\path\to\dir\\""#),
+            r#"/i"C:\path\to\dir""#
+        );
+    }
+
+    #[test]
+    fn test_clean_include_path_real_world_example() {
+        // Real example from the XStore build
+        assert_eq!(
+            clean_include_path(
+                r#"/I"S:\Azure\Storage-XStore\src\XAggregator\XsdMacroGen\obj\amd64\\""#
+            ),
+            r#"/I"S:\Azure\Storage-XStore\src\XAggregator\XsdMacroGen\obj\amd64""#
+        );
     }
 
     // ----------------------------------------------------------------------------

@@ -195,7 +195,7 @@ Diagnostics:
   UnusedIncludes: None
 ```
 
-**Full Template**: See [.clangd.template](.clangd.template) for a comprehensive configuration with comments.
+**Full Template**: See [.clangd.template](../.clangd.template) for a comprehensive configuration with comments.
 
 ### Why You Need .clangd
 

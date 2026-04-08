@@ -12,6 +12,7 @@ indicatif = "0.18"
 indicatif-log-bridge = "0.2"
 log = "0.4"
 regex = "1.12"
+indexmap = { version = "2.9", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 simplelog = "0.12"

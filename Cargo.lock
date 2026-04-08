@@ -341,6 +341,7 @@ dependencies = [
  "anyhow",
  "atty",
  "clap",
+ "indexmap",
  "indicatif",
  "indicatif-log-bridge",
  "log",

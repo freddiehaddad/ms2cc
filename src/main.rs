@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
+use indexmap::IndexMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{LevelFilter, debug, error, info, trace, warn};
 use regex::Regex;
@@ -69,6 +70,10 @@ struct Args {
     /// Disable progress bar output
     #[arg(long, default_value = "false")]
     no_progress: bool,
+
+    /// Overwrite the output file instead of merging with existing entries
+    #[arg(long, default_value = "false")]
+    overwrite: bool,
 }
 
 // ----------------------------------------------------------------------------
@@ -85,7 +90,7 @@ struct ProjectContext {
 }
 
 /// Represents a single compilation command entry in compile_commands.json
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct CompileCommand {
     /// The working directory of the compilation
     directory: String,
@@ -766,6 +771,70 @@ fn create_temp_output_file(output_path: &Path) -> Result<NamedTempFile> {
         .with_context(|| format!("Failed to create temporary file in: {}", parent.display()))
 }
 
+/// Load an existing compile_commands.json database for merging.
+/// Returns an empty Vec if the file doesn't exist or can't be parsed.
+fn load_existing_database(path: &Path) -> Result<Vec<CompileCommand>> {
+    if !path.exists() {
+        debug!("No existing database at {}", path.display());
+        return Ok(Vec::new());
+    }
+
+    debug!("Loading existing database: {}", path.display());
+    let file = File::open(path)
+        .with_context(|| format!("Failed to open existing database: {}", path.display()))?;
+    let reader = BufReader::new(file);
+
+    match serde_json::from_reader(reader) {
+        Ok(commands) => Ok(commands),
+        Err(e) => {
+            warn!(
+                "Failed to parse existing database ({}), starting fresh: {}",
+                path.display(),
+                e
+            );
+            Ok(Vec::new())
+        }
+    }
+}
+
+/// Merge new compile commands into an existing database.
+/// Entries are keyed by (file, directory). New entries replace existing ones with the
+/// same key; entries not present in the new set are preserved unchanged.
+fn merge_compile_commands(
+    existing: Vec<CompileCommand>,
+    new_entries: Vec<CompileCommand>,
+) -> Vec<CompileCommand> {
+    let mut map: IndexMap<(String, String), CompileCommand> =
+        IndexMap::with_capacity(existing.len() + new_entries.len());
+
+    for entry in existing {
+        let key = (entry.file.clone(), entry.directory.clone());
+        map.insert(key, entry);
+    }
+
+    let mut updated_count = 0usize;
+    let mut added_count = 0usize;
+
+    for entry in new_entries {
+        let key = (entry.file.clone(), entry.directory.clone());
+        if map.contains_key(&key) {
+            updated_count += 1;
+        } else {
+            added_count += 1;
+        }
+        map.insert(key, entry);
+    }
+
+    info!(
+        "Merge result: {} updated, {} added, {} total",
+        updated_count,
+        added_count,
+        map.len()
+    );
+
+    map.into_values().collect()
+}
+
 fn run() -> Result<()> {
     let args = Args::parse();
 
@@ -801,9 +870,32 @@ fn run() -> Result<()> {
     // The temp file auto-deletes on drop if we don't persist it.
     let temp_file = create_temp_output_file(&args.output_file)?;
 
+    // Load existing database for merging (unless --overwrite is set)
+    let existing = if args.overwrite {
+        info!("Overwrite mode: existing database will be replaced");
+        Vec::new()
+    } else {
+        let loaded = load_existing_database(&args.output_file)?;
+        if !loaded.is_empty() {
+            info!(
+                "Loaded {} existing entries from {}",
+                loaded.len(),
+                args.output_file.display()
+            );
+        }
+        loaded
+    };
+
     // Process the MSBuild log file
     let patterns = LogPatterns::new()?;
-    let compile_commands = process_msbuild_log(&args.input_file, patterns, show_progress, &multi)?;
+    let new_commands = process_msbuild_log(&args.input_file, patterns, show_progress, &multi)?;
+
+    // Merge or replace
+    let compile_commands = if existing.is_empty() {
+        new_commands
+    } else {
+        merge_compile_commands(existing, new_commands)
+    };
 
     // Write JSON output to the temp file
     info!(
@@ -1664,5 +1756,103 @@ mod tests {
         let pb = setup_write_progress_bar(false, &multi).unwrap();
         // Should create a hidden progress bar
         pb.finish_and_clear();
+    }
+
+    // ----------------------------------------------------------------------------
+    // Tests for merge_compile_commands
+    // ----------------------------------------------------------------------------
+
+    fn make_entry(file: &str, directory: &str, command: &str) -> CompileCommand {
+        CompileCommand {
+            file: file.to_string(),
+            directory: directory.to_string(),
+            command: command.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_merge_empty_existing_returns_new() {
+        let existing = vec![];
+        let new_entries = vec![
+            make_entry("a.cpp", "C:\\proj", "cl /c a.cpp"),
+            make_entry("b.cpp", "C:\\proj", "cl /c b.cpp"),
+        ];
+        let result = merge_compile_commands(existing, new_entries);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].file, "a.cpp");
+        assert_eq!(result[1].file, "b.cpp");
+    }
+
+    #[test]
+    fn test_merge_empty_new_returns_existing() {
+        let existing = vec![
+            make_entry("a.cpp", "C:\\proj", "cl /c a.cpp"),
+            make_entry("b.cpp", "C:\\proj", "cl /c b.cpp"),
+        ];
+        let new_entries = vec![];
+        let result = merge_compile_commands(existing, new_entries);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].file, "a.cpp");
+        assert_eq!(result[1].file, "b.cpp");
+    }
+
+    #[test]
+    fn test_merge_updates_matching_entries() {
+        let existing = vec![
+            make_entry("a.cpp", "C:\\proj", "cl /c /O1 a.cpp"),
+            make_entry("b.cpp", "C:\\proj", "cl /c /O1 b.cpp"),
+        ];
+        let new_entries = vec![make_entry("a.cpp", "C:\\proj", "cl /c /O2 a.cpp")];
+        let result = merge_compile_commands(existing, new_entries);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].command, "cl /c /O2 a.cpp");
+        assert_eq!(result[1].command, "cl /c /O1 b.cpp");
+    }
+
+    #[test]
+    fn test_merge_appends_new_entries() {
+        let existing = vec![make_entry("a.cpp", "C:\\proj", "cl /c a.cpp")];
+        let new_entries = vec![make_entry("b.cpp", "C:\\proj", "cl /c b.cpp")];
+        let result = merge_compile_commands(existing, new_entries);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].file, "a.cpp");
+        assert_eq!(result[1].file, "b.cpp");
+    }
+
+    #[test]
+    fn test_merge_preserves_same_file_different_directory() {
+        let existing = vec![
+            make_entry("crc.cpp", "C:\\lib", "cl /c /DUSER crc.cpp"),
+            make_entry("crc.cpp", "C:\\klib", "cl /c /DKERNEL crc.cpp"),
+        ];
+        let new_entries = vec![make_entry("crc.cpp", "C:\\lib", "cl /c /DUSER /O2 crc.cpp")];
+        let result = merge_compile_commands(existing, new_entries);
+        assert_eq!(result.len(), 2);
+        // The userspace entry should be updated
+        assert_eq!(result[0].command, "cl /c /DUSER /O2 crc.cpp");
+        assert_eq!(result[0].directory, "C:\\lib");
+        // The kernel entry should be untouched
+        assert_eq!(result[1].command, "cl /c /DKERNEL crc.cpp");
+        assert_eq!(result[1].directory, "C:\\klib");
+    }
+
+    #[test]
+    fn test_merge_mixed_update_and_add() {
+        let existing = vec![
+            make_entry("a.cpp", "C:\\proj", "cl /c a.cpp"),
+            make_entry("b.cpp", "C:\\proj", "cl /c b.cpp"),
+            make_entry("c.cpp", "C:\\proj", "cl /c c.cpp"),
+        ];
+        let new_entries = vec![
+            make_entry("b.cpp", "C:\\proj", "cl /c /O2 b.cpp"),
+            make_entry("d.cpp", "C:\\proj", "cl /c d.cpp"),
+        ];
+        let result = merge_compile_commands(existing, new_entries);
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].file, "a.cpp");
+        assert_eq!(result[1].file, "b.cpp");
+        assert_eq!(result[1].command, "cl /c /O2 b.cpp");
+        assert_eq!(result[2].file, "c.cpp");
+        assert_eq!(result[3].file, "d.cpp");
     }
 }

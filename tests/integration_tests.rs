@@ -479,3 +479,228 @@ fn test_nested_dependencies() {
     // Validate correctness
     validate_correctness(&actual, &expected).expect("Actual output does not match expected");
 }
+
+// ============================================================================
+// Merge Integration Tests
+// ============================================================================
+
+#[test]
+fn test_merge_preserves_existing_entries() {
+    let binary = get_binary_path();
+    let input = get_fixture_path("sequential_build.log");
+    let output = get_fixture_path("merge_test_output.json");
+
+    // Clean up
+    let _ = fs::remove_file(&output);
+
+    // Pre-populate output with an entry that won't appear in the build log
+    let pre_existing = serde_json::json!([
+        {
+            "directory": "C:\\fake\\project",
+            "command": "CL.exe /c fake.cpp",
+            "file": "C:\\fake\\project\\fake.cpp"
+        }
+    ]);
+    fs::write(&output, serde_json::to_string(&pre_existing).unwrap())
+        .expect("Failed to write pre-existing output");
+
+    // Run ms2cc in default merge mode
+    let result = Command::new(&binary)
+        .arg("--input-file")
+        .arg(&input)
+        .arg("--output-file")
+        .arg(&output)
+        .arg("--log-level")
+        .arg("off")
+        .output()
+        .expect("Failed to execute ms2cc");
+
+    assert!(
+        result.status.success(),
+        "ms2cc failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let json_str = fs::read_to_string(&output).expect("Failed to read output");
+    let result: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON");
+    let array = result.as_array().expect("JSON is not an array");
+
+    // Should contain the pre-existing entry plus entries from the build log
+    let has_fake = array.iter().any(|e| {
+        e.get("file")
+            .and_then(|f| f.as_str())
+            .map(|f| f == "C:\\fake\\project\\fake.cpp")
+            .unwrap_or(false)
+    });
+    assert!(
+        has_fake,
+        "Merged output should preserve pre-existing entries"
+    );
+
+    let expected =
+        load_expected_json("sequential_build.expected.json").expect("Failed to load expected JSON");
+    let expected_count = expected.as_array().unwrap().len();
+    assert_eq!(
+        array.len(),
+        expected_count + 1,
+        "Merged output should have all build entries plus the pre-existing one"
+    );
+
+    // Clean up
+    let _ = fs::remove_file(&output);
+}
+
+#[test]
+fn test_overwrite_replaces_existing_entries() {
+    let binary = get_binary_path();
+    let input = get_fixture_path("sequential_build.log");
+    let output = get_fixture_path("overwrite_test_output.json");
+
+    // Clean up
+    let _ = fs::remove_file(&output);
+
+    // Pre-populate output with an extra entry
+    let pre_existing = serde_json::json!([
+        {
+            "directory": "C:\\fake\\project",
+            "command": "CL.exe /c fake.cpp",
+            "file": "C:\\fake\\project\\fake.cpp"
+        }
+    ]);
+    fs::write(&output, serde_json::to_string(&pre_existing).unwrap())
+        .expect("Failed to write pre-existing output");
+
+    // Run ms2cc with --overwrite
+    let result = Command::new(&binary)
+        .arg("--input-file")
+        .arg(&input)
+        .arg("--output-file")
+        .arg(&output)
+        .arg("--overwrite")
+        .arg("--log-level")
+        .arg("off")
+        .output()
+        .expect("Failed to execute ms2cc");
+
+    assert!(
+        result.status.success(),
+        "ms2cc failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let json_str = fs::read_to_string(&output).expect("Failed to read output");
+    let result: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON");
+    let array = result.as_array().expect("JSON is not an array");
+
+    // Should NOT contain the pre-existing entry
+    let has_fake = array.iter().any(|e| {
+        e.get("file")
+            .and_then(|f| f.as_str())
+            .map(|f| f == "C:\\fake\\project\\fake.cpp")
+            .unwrap_or(false)
+    });
+    assert!(
+        !has_fake,
+        "Overwrite mode should not preserve pre-existing entries"
+    );
+
+    let expected =
+        load_expected_json("sequential_build.expected.json").expect("Failed to load expected JSON");
+    assert_eq!(
+        array.len(),
+        expected.as_array().unwrap().len(),
+        "Overwrite output should match expected count exactly"
+    );
+
+    // Clean up
+    let _ = fs::remove_file(&output);
+}
+
+#[test]
+fn test_merge_updates_matching_entries() {
+    let binary = get_binary_path();
+    let input = get_fixture_path("sequential_build.log");
+    let output = get_fixture_path("merge_update_test_output.json");
+
+    // Clean up
+    let _ = fs::remove_file(&output);
+
+    // First, run ms2cc to generate a full database
+    let result = Command::new(&binary)
+        .arg("--input-file")
+        .arg(&input)
+        .arg("--output-file")
+        .arg(&output)
+        .arg("--overwrite")
+        .arg("--log-level")
+        .arg("off")
+        .output()
+        .expect("Failed to execute ms2cc");
+    assert!(result.status.success());
+
+    let first_json: Value = serde_json::from_str(&fs::read_to_string(&output).unwrap()).unwrap();
+    let first_count = first_json.as_array().unwrap().len();
+
+    // Run again in merge mode with the same log — count should be identical
+    let result = Command::new(&binary)
+        .arg("--input-file")
+        .arg(&input)
+        .arg("--output-file")
+        .arg(&output)
+        .arg("--log-level")
+        .arg("off")
+        .output()
+        .expect("Failed to execute ms2cc");
+    assert!(result.status.success());
+
+    let second_json: Value = serde_json::from_str(&fs::read_to_string(&output).unwrap()).unwrap();
+    let second_count = second_json.as_array().unwrap().len();
+
+    assert_eq!(
+        first_count, second_count,
+        "Re-merging same log should not change entry count"
+    );
+
+    // Clean up
+    let _ = fs::remove_file(&output);
+}
+
+#[test]
+fn test_merge_recovers_from_corrupted_database() {
+    let binary = get_binary_path();
+    let input = get_fixture_path("sequential_build.log");
+    let output = get_fixture_path("corrupted_test_output.json");
+
+    // Clean up
+    let _ = fs::remove_file(&output);
+
+    // Write corrupted JSON
+    fs::write(&output, "this is not valid json {{{").expect("Failed to write corrupted output");
+
+    // Run ms2cc in default merge mode — should recover gracefully
+    let result = Command::new(&binary)
+        .arg("--input-file")
+        .arg(&input)
+        .arg("--output-file")
+        .arg(&output)
+        .arg("--log-level")
+        .arg("off")
+        .output()
+        .expect("Failed to execute ms2cc");
+
+    assert!(
+        result.status.success(),
+        "ms2cc should recover from corrupted database: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let json_str = fs::read_to_string(&output).expect("Failed to read output");
+    let result: Value = serde_json::from_str(&json_str).expect("Output should be valid JSON");
+    assert!(
+        !result.as_array().unwrap().is_empty(),
+        "Should have entries from the build log"
+    );
+
+    // Clean up
+    let _ = fs::remove_file(&output);
+}

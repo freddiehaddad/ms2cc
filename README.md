@@ -155,6 +155,9 @@ ms2cc -i msbuild.log -o compile_commands.json -l error
 # Disable progress bars (useful for scripting)
 ms2cc -i msbuild.log -o compile_commands.json --no-progress
 
+# Overwrite mode (replace instead of merging with existing database)
+ms2cc -i msbuild.log -o compile_commands.json --overwrite
+
 # Show all available options
 ms2cc --help
 
@@ -170,9 +173,22 @@ ms2cc --version
 | `-o, --output-file <FILE>` | Path to output compile_commands.json                 | `compile_commands.json` |
 | `-l, --log-level <LEVEL>`  | Logging level (off, error, warn, info, debug, trace) | `info`                  |
 | `-p, --pretty-print`       | Pretty-print JSON output                             | (disabled)              |
+| `--overwrite`              | Replace output file instead of merging               | (merge enabled)         |
 | `--no-progress`            | Disable progress bar output                          | (progress bars enabled) |
 | `-h, --help`               | Display help information                             | -                       |
 | `-V, --version`            | Display version information                          | -                       |
+
+### Incremental Builds
+
+By default, ms2cc **merges** new entries into an existing `compile_commands.json` rather than replacing it. This means incremental builds work correctly — only the recompiled files are updated while entries for unchanged files are preserved.
+
+Entries are matched by their source file path and project directory. If a file was recompiled, its entry is updated. If a file wasn't recompiled (and therefore not in the new build log), its existing entry is left untouched.
+
+To start fresh and replace the entire database, use `--overwrite`:
+
+```powershell
+ms2cc -i msbuild.log -o compile_commands.json --overwrite
+```
 
 ## Editor Configuration
 
@@ -292,13 +308,13 @@ msbuild YourSolution.sln /v:detailed > msbuild.log
 
 - MSBuild verbosity too low
 - Some projects were skipped during build
-- Incremental build didn't compile all files
 
 **Solutions:**
 
 1. Use `/v:detailed` verbosity
-2. Do a clean rebuild: `msbuild YourSolution.sln /t:Rebuild /v:detailed > msbuild.log`
-3. Delete any stale `compile_commands.json` files before regenerating, especially after switching configurations (Debug/Release, Win32/x64)
+2. Do a clean rebuild and use `--overwrite`: `msbuild YourSolution.sln /t:Rebuild /v:detailed > msbuild.log && ms2cc --overwrite`
+
+> **Note:** With incremental builds, ms2cc merges new entries into the existing database by default. If you've done a full rebuild and want a clean database, use `--overwrite` to avoid retaining stale entries from a previous build configuration.
 
 ### Editor doesn't recognize compile_commands.json
 

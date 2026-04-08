@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+use tempfile::NamedTempFile;
 
 // ----------------------------------------------------------------------------
 // Logging
@@ -755,11 +756,14 @@ fn process_msbuild_log(
     Ok(compile_commands)
 }
 
-fn open_output_file(path: &Path) -> Result<BufWriter<File>> {
-    debug!("Opening output file: {}", path.display());
-    let file = File::create(path)
-        .with_context(|| format!("Failed to create output file: {}", path.display()))?;
-    Ok(BufWriter::new(file))
+/// Create a temporary file in the same directory as the output file.
+/// This validates that the output directory is writable before we begin parsing.
+/// The temp file auto-deletes on drop if not persisted.
+fn create_temp_output_file(output_path: &Path) -> Result<NamedTempFile> {
+    let parent = output_path.parent().unwrap_or(Path::new("."));
+    debug!("Creating temporary output file in: {}", parent.display());
+    NamedTempFile::new_in(parent)
+        .with_context(|| format!("Failed to create temporary file in: {}", parent.display()))
 }
 
 fn run() -> Result<()> {
@@ -793,14 +797,15 @@ fn run() -> Result<()> {
 
     info!("ms2cc v{} - {}", PACKAGE_VERSION, PACKAGE_DESCRIPTION);
 
-    // Open output file early in case of an error.
-    let output = open_output_file(&args.output_file)?;
+    // Create a temp file in the output directory to validate writability before parsing.
+    // The temp file auto-deletes on drop if we don't persist it.
+    let temp_file = create_temp_output_file(&args.output_file)?;
 
     // Process the MSBuild log file
     let patterns = LogPatterns::new()?;
     let compile_commands = process_msbuild_log(&args.input_file, patterns, show_progress, &multi)?;
 
-    // Write JSON output
+    // Write JSON output to the temp file
     info!(
         "Writing {} commands to {}",
         compile_commands.len(),
@@ -810,7 +815,7 @@ fn run() -> Result<()> {
     // Create progress spinner for write operation if enabled
     let write_pb = setup_write_progress_bar(show_progress, &multi)?;
 
-    // Wrap output with progress tracking
+    let output = BufWriter::new(temp_file.as_file());
     let progress_writer = write_pb.wrap_write(output);
 
     if args.pretty_print {
@@ -822,6 +827,14 @@ fn run() -> Result<()> {
     }
 
     write_pb.finish_and_clear();
+
+    // Atomically replace the output file now that writing succeeded
+    temp_file.persist(&args.output_file).with_context(|| {
+        format!(
+            "Failed to persist output file: {}",
+            args.output_file.display()
+        )
+    })?;
 
     info!("Finished");
 

@@ -312,9 +312,77 @@ fn validate_correctness(actual: &Value, expected: &Value) -> Result<(), String> 
     Ok(())
 }
 
+/// Run ms2cc with arbitrary arguments and return the process output
+fn run_ms2cc_raw(args: &[&str]) -> std::process::Output {
+    let binary = get_binary_path();
+    Command::new(&binary)
+        .args(args)
+        .output()
+        .expect("Failed to execute ms2cc")
+}
+
 // ============================================================================
 // Integration Tests
 // ============================================================================
+
+#[test]
+fn test_missing_input_does_not_create_output() {
+    let output_path = get_fixture_path("missing_input_test_output.json");
+
+    // Ensure output doesn't exist from previous run
+    let _ = fs::remove_file(&output_path);
+
+    let result = run_ms2cc_raw(&[
+        "--input-file",
+        "nonexistent.log",
+        "--output-file",
+        output_path.to_str().unwrap(),
+        "--log-level",
+        "off",
+    ]);
+
+    assert!(
+        !result.status.success(),
+        "ms2cc should fail when input file doesn't exist"
+    );
+    assert!(
+        !output_path.exists(),
+        "Output file should not be created when input file doesn't exist"
+    );
+}
+
+#[test]
+fn test_missing_input_does_not_overwrite_existing_output() {
+    let output_path = get_fixture_path("existing_output_test.json");
+    let sentinel = "existing content that should not be overwritten";
+
+    // Create an existing output file with known content
+    fs::write(&output_path, sentinel).expect("Failed to create test output file");
+
+    let result = run_ms2cc_raw(&[
+        "--input-file",
+        "nonexistent.log",
+        "--output-file",
+        output_path.to_str().unwrap(),
+        "--log-level",
+        "off",
+    ]);
+
+    assert!(
+        !result.status.success(),
+        "ms2cc should fail when input file doesn't exist"
+    );
+
+    let contents =
+        fs::read_to_string(&output_path).expect("Existing output file should still exist");
+    assert_eq!(
+        contents, sentinel,
+        "Existing output file should not be modified on failure"
+    );
+
+    // Clean up
+    let _ = fs::remove_file(&output_path);
+}
 
 #[test]
 fn test_sequential_build() {

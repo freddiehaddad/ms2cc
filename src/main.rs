@@ -454,7 +454,7 @@ fn from_project_pattern() -> Result<Regex> {
 /// Pattern to match CL.exe compilation commands
 /// Matches lines containing CL.exe followed by arguments
 fn compile_command_pattern() -> Result<Regex> {
-    let pattern = r"^\s+.*CL\.exe\s";
+    let pattern = r"(?i)^\s+.*CL\.exe\s";
     debug!("Compiling CL.exe command regex: {}", pattern);
     Regex::new(pattern).context("Failed to compile CL.exe command regex")
 }

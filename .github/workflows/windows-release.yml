@@ -36,11 +36,16 @@ jobs:
         id: changelog
         shell: pwsh
         run: |
-          $repo = "${{ github.repository }}"
-          $lastTag = git describe --tags --abbrev=0 HEAD^
-          $log = git log $lastTag..HEAD --pretty=format:"* `%h` - %s by %an"
-          $logText = $log -join "`n"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "changelog=$logText"
+          $lastTag = git describe --tags --abbrev=0 HEAD^ 2>$null
+          if ($LASTEXITCODE -ne 0 -or -not $lastTag) {
+            $log = git log --pretty=format:"* %h - %s by %an"
+          } else {
+            $log = git log "$lastTag..HEAD" --pretty=format:"* %h - %s by %an"
+          }
+          "changelog<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -NoNewline
+          "`n" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -NoNewline
+          $log | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

@@ -1,0 +1,4 @@
+allow-branch = ["master"]
+pre-release-commit-message = "release: v{{version}}"
+tag-message = "Release v{{version}}"
+publish = false

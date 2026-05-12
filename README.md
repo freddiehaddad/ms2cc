@@ -95,18 +95,20 @@ A language server must replicate the exact compiler invocation, or it literally 
 
 ```powershell
 cd C:\path\to\your\project
-msbuild YourSolution.sln /v:detailed > msbuild.log
+msbuild YourSolution.sln /fileLogger /fileLoggerParameters:LogFile=msbuild.log;Verbosity=detailed
 ```
 
-The `/v:detailed` flag is required. Without it, [MSBuild][msbuild-cli] doesn't log enough information.
+The `Verbosity=detailed` parameter is required. Without it, [MSBuild][msbuild-cli] doesn't log enough information. We use MSBuild's built-in file logger (`/fileLogger /fileLoggerParameters:`) rather than PowerShell redirection (`> msbuild.log`) because Windows PowerShell 5.1 writes redirected output as UTF-16 LE, which ms2cc cannot read. The `/fileLogger` approach writes the file as UTF-8 regardless of shell. (Short forms `/fl` and `/flp:` work identically.)
 
 > **Visual Studio IDE:** In Visual Studio 2019/2022 use **Build > Project Only > Build Only ProjectName**. When the Output window finishes scrolling, right-click inside it, choose [**Save Build Log**][vs-build-logging], and save it as `msbuild.log` with **MSBuild Project Build Log (\*.log)**.
 
 ### Generate compile_commands.json
 
 ```powershell
-ms2cc -i msbuild.log -o compile_commands.json
+ms2cc -i msbuild.log -o compile_commands.json -p
 ```
+
+The `-p` flag pretty-prints the output, which is useful for the verification step below. Omit it for production use to keep the file smaller.
 
 ### Configure Your Editor
 
@@ -124,9 +126,9 @@ The file should exist and contain one JSON object per compiler invocation, for e
 ```json
 [
   {
-    "file": "src\\main.cpp",
-    "directory": "C:/path/to/your/project",
-    "arguments": ["cl.exe", "/Iinclude", "src/main.cpp"]
+    "directory": "C:\\path\\to\\your\\project",
+    "command": "CL.exe /c /nologo /W4 /std:c++20 /Iinclude \"C:\\path\\to\\your\\project\\src\\main.cpp\"",
+    "file": "C:\\path\\to\\your\\project\\src\\main.cpp"
   }
 ]
 ```
@@ -296,10 +298,10 @@ See the **[Using clangd with MSVC Projects](docs/CLANGD_USAGE.md)** guide for co
 
 **Cause:** MSBuild log doesn't have enough detail.
 
-**Solution:** Ensure you used `/v:detailed` when building:
+**Solution:** Ensure you used `Verbosity=detailed` when building:
 
 ```powershell
-msbuild YourSolution.sln /v:detailed > msbuild.log
+msbuild YourSolution.sln /fileLogger /fileLoggerParameters:LogFile=msbuild.log;Verbosity=detailed
 ```
 
 ### Some source files are missing from compile_commands.json
@@ -311,8 +313,8 @@ msbuild YourSolution.sln /v:detailed > msbuild.log
 
 **Solutions:**
 
-1. Use `/v:detailed` verbosity
-2. Do a clean rebuild and use `--overwrite`: `msbuild YourSolution.sln /t:Rebuild /v:detailed > msbuild.log && ms2cc --overwrite`
+1. Use `Verbosity=detailed`
+2. Do a clean rebuild and use `--overwrite`: `msbuild YourSolution.sln /t:Rebuild /fileLogger /fileLoggerParameters:LogFile=msbuild.log;Verbosity=detailed; ms2cc --overwrite`
 
 > **Note:** With incremental builds, ms2cc merges new entries into the existing database by default. If you've done a full rebuild and want a clean database, use `--overwrite` to avoid retaining stale entries from a previous build configuration.
 
@@ -365,50 +367,69 @@ The template suppresses common MSVC-specific warnings while keeping important di
 
 ## LSP and AI: Better Together
 
-With the rise of AI-powered coding assistants, some developers believe LSP is antiquated. However, LSP remains essential for high-quality code intelligence for several reasons:
+With the rise of AI-powered coding assistants, some developers wonder whether language-server tooling is still relevant. It is -- arguably more than before. The two solve different problems and work best in combination.
 
-1. They provide deterministic, real-time guarantees
+### Right tool for the job
 
-   The [Language Server Protocol][lsp] gives editors fast, reliable, incremental features such as:
-   - autocompletion
-   - hover info and signature help
-   - diagnostics in real time
-   - semantic tokenization
-   - symbol indexing
-   - "go to definition" and cross-reference analysis
+| Task                                  | Best tool                                  |
+| ------------------------------------- | ------------------------------------------ |
+| "What's the type of this variable?"   | Language server                            |
+| "Find every caller of this function"  | Language server                            |
+| "Rename this symbol everywhere"       | Language server                            |
+| "Show me errors as I type"            | Language server                            |
+| "Did my last edit break anything?"    | Language server (diagnostics in ms)        |
+| "Jump to this symbol's definition"    | Language server                            |
+| "Write a function that does X"        | LLM                                        |
+| "Why is this code buggy?"             | LLM (often)                                |
+| "Explain this 500-line file"          | LLM                                        |
+| "Generate boilerplate for this design"| LLM                                        |
 
-   These features work because LSP servers maintain an up-to-date AST, symbol tables, type information, and can react within milliseconds.
+Generation, exploration, and natural-language reasoning are LLM strengths. Symbol-precise queries, refactoring, and millisecond-latency feedback are language-server strengths. Neither replaces the other.
 
-   LLM-based agents cannot match that determinism or sub-50 ms latency reliably, especially on larger codebases.
+### Why language servers still matter
 
-2. LSP understands project semantics in a ways LLMs cannot match
+1. Deterministic, low-latency answers
 
-   Even with retrieval or agent-based navigation, LLMs still:
-   - lack precise understanding of type systems
+   Language servers like [clangd][clangd] maintain an up-to-date AST, symbol table, and type information, and typically respond in 10-200 ms warm. LLMs are non-deterministic by design (sampling) and run 500 ms-5 s+. For typing flow, "go to definition", and refactor-rename, you want the correct answer every time, not a probabilistic best-guess.
+
+2. Project-semantics precision
+
+   LLMs reason over tokens, not syntax trees. Even with retrieval or agent-based navigation, they:
+   - lack precise understanding of type systems (templates, overload resolution, SFINAE)
    - can hallucinate unseen functions or APIs
    - struggle with multi-file, incremental code state
    - cannot maintain a full AST-level view the way a compiler or language server can
 
-   LSPs plug directly into the compiler toolchain; that precision is not replaceable by probabilistic models alone.
+   Language servers plug directly into the compiler toolchain; that precision isn't replaceable by probabilistic models alone.
 
-3. Agents build on top of LSP features -- not instead of them
+3. Cost, privacy, and offline
 
-   Modern coding assistants (GitHub Copilot, Cursor AI, Codeium, Windsurf, Zed AI, etc.) typically use:
-   - LLM (reasoning + generation)
-   - LSP (semantic signals, types, diagnostics)
-   - Indexers (global symbol search, embeddings)
+   Language servers run locally and free. LLM agents cost money per token and typically send code to a remote server. For interactive feedback (squiggles, hover, completion) you want a local tool.
 
-   LLMs work best when they are grounded in deterministic data -- and LSP is the grounding layer.
+### Agents build *on* LSP, not instead of it
 
-   Agents rely on:
-   - LSP diagnostics to know what's broken
-   - LSP symbol info to find definitions
-   - LSP semantic tokens to reason about structure
-   - LSP type information to provide accurate code suggestions
+Modern coding assistants -- GitHub Copilot, Cursor, Windsurf, Zed AI, Cline, Aider, Continue -- combine three layers:
 
-   If LSP didn’t exist, coding agents would be worse, not better.
+- **LLM** for reasoning and generation
+- **Language servers** for semantic signals (types, diagnostics, symbol info, references)
+- **Indexers** for global symbol search and embeddings
 
-That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation that makes both manual coding and AI assistance better. Run ms2cc whenever you regenerate build logs so `compile_commands.json` stays fresh as projects, configurations, or toolchains change.
+The LLM is the loud part; the language server is the grounding part. When a chat-style assistant answers "what's the type of `foo`?", the editor passes LSP-derived type info into the prompt -- the model doesn't guess. And the agentic "edit -> check diagnostics -> fix" inner loop that makes coding agents tractable is built on LSP: without millisecond-latency diagnostics, the loop becomes "edit -> run full build -> parse stderr -> fix" with seconds-to-minutes per iteration.
+
+Concrete evidence that agents lean on LSP:
+
+- **Cursor's Composer** consumes LSP signals heavily; disabling the language server visibly degrades edit quality.
+- **Aider** built its own structural index (a Tree-sitter "repo-map") for setups where LSP wasn't reliable -- they needed structural signals badly enough to reinvent a subset of LSP themselves.
+- The **[Model Context Protocol (MCP)][mcp]** ecosystem ships multiple LSP-as-MCP-server implementations precisely so agents can call language servers directly as tools.
+- Agentic CLIs (Claude Code, Codex CLI, GitHub Copilot CLI, Cline) all leverage LSP via the editor or a wrapper when available.
+
+If LSP -- or any comparable source of structural code intelligence -- didn't exist, coding agents would be worse, not better. This isn't theoretical; it's observable in every serious agent shipping today.
+
+### Why this matters more in an AI-heavy workflow
+
+Coding agents write code faster than humans can hand-check it. Catching their mistakes -- type errors, broken refactors, calls to APIs that don't exist -- requires fast, accurate semantic feedback as you read and review the generated code. That feedback comes from a language server reading `compile_commands.json`. Without it, you're relying on the LLM to have been correct in the first place, which is exactly the failure mode the language server is there to catch.
+
+That's why ms2cc exists -- to give your C/C++ projects the language-server foundation that makes both manual coding and AI assistance dramatically more effective. Run ms2cc whenever you regenerate build logs so `compile_commands.json` stays fresh as projects, configurations, or toolchains change.
 
 ## References
 
@@ -420,6 +441,7 @@ That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation
 - [Microsoft C/C++ Extension for VSCode][ms-cpp-ext]
 - [MSBuild Command-Line Reference][msbuild-cli]
 - [Visual Studio Build Logging][vs-build-logging]
+- [Model Context Protocol (MCP)][mcp]
 - [Rust Programming Language][rust]
 
 [lsp]: https://microsoft.github.io/language-server-protocol/
@@ -430,6 +452,7 @@ That's why ms2cc exists -- to ensure your C/C++ projects have the LSP foundation
 [msbuild-cli]: https://learn.microsoft.com/en-us/visualstudio/msbuild/msbuild-command-line-reference
 [vs-build-logging]: https://learn.microsoft.com/en-us/visualstudio/ide/build-log-file-visual-studio
 [rust]: https://www.rust-lang.org/
+[mcp]: https://modelcontextprotocol.io/
 [LICENSE]: LICENSE.txt
 
 ## License

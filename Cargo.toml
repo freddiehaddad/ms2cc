@@ -1,6 +1,6 @@
 [package]
 name = "ms2cc"
-version = "3.0.1"
+version = "4.0.0"
 description = "Generate compile_commands.json from Visual C++ MSBuild projects"
 edition = "2024"
 

@@ -457,4 +457,4 @@ That's why ms2cc exists -- to give your C/C++ projects the language-server found
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE] file for details.
+MIT. See [LICENSE](LICENSE).

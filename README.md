@@ -1,459 +1,238 @@
 # ms2cc
 
-> Convert MSBuild logs to compile_commands.json for C/C++ language servers
+`ms2cc` creates a
+[`compile_commands.json`](https://clang.llvm.org/docs/JSONCompilationDatabase.html)
+file for C and C++ projects built with Visual Studio and MSBuild.
 
-## Table of Contents
-
-- [What is ms2cc?](#what-is-ms2cc)
-- [Why is ms2cc useful?](#why-is-ms2cc-useful)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Usage](#usage)
-- [Editor Configuration](#editor-configuration)
-  - [Visual Studio Code](#visual-studio-code)
-  - [Other Editors](#other-editors)
-- [Troubleshooting](#troubleshooting)
-- [LSP and AI: Better Together](#lsp-and-ai-better-together)
-- [References](#references)
-- [License](#license)
-
-## What is ms2cc?
-
-ms2cc converts MSBuild build logs into [`compile_commands.json`][compile-commands] format. This compilation database is used by [language servers][lsp], and various IDEs for code intelligence features (IntelliSense, navigation, refactoring, linting).
-
-[MSBuild][msbuild-cli] does not generate [`compile_commands.json`][compile-commands]. ms2cc extracts compiler invocations from MSBuild's detailed logs and converts them to the standard format.
-
-## Why is ms2cc Useful?
-
-C and C++ [language servers][lsp] (like [clangd][clangd], ccls, Microsoft C/C++, etc.) need a [`compile_commands.json`][compile-commands] file because they cannot correctly understand or parse your code without the exact compiler flags that are used when building the project.
-
-Unlike languages such as Rust, Go, Python, or Java, C and C++ code is not self-describing. A C/C++ source file:
-
-- depends on preprocessor macros
-- depends on include paths (-I)
-- depends on system headers
-- can change behavior based on platform and compiler
-- may use language extensions (-std=gnu++20, -fms-extensions)
-- may be compiled differently per file
-
-This means the same `.cpp` file can produce totally different ASTs depending on its flags.
-
-A language server must replicate the exact compiler invocation, or it literally cannot parse the file in the correct configuration.
+Tools such as clangd and clang-tidy use this file to find your source files and
+understand the same include paths, preprocessor definitions, and compiler
+options used by your build.
 
 ## Requirements
 
-- **Platform:** Windows (Windows 10/11, Windows Server)
-- **Build System:** MSBuild (Visual Studio 2019, 2022, or Build Tools)
-- **For Building from Source (optional):** Rust toolchain
+- Windows
+- Visual Studio 2022 or Build Tools 2022, version 17.8 or newer
+- The **Desktop development with C++** workload
+- Any packages and generated files required by your project
 
-## Installation
+Run `ms2cc` from a command prompt where your project already builds correctly.
+If your repository provides a setup script, run that script first.
 
-### Option A: Download Pre-built Binary
+## Install
 
-1. **Download:**
-   - Visit the [releases page](https://github.com/freddiehaddad/ms2cc/releases)
-   - Download the `ms2cc-x.x.x.zip` file
-
-2. **Extract:**
-   - Unzip the file to extract `ms2cc.exe`
-
-3. **Usage:**
-   - Run it from anywhere by adding the directory to your PATH, or
-   - Copy `ms2cc.exe` to your project directory
-
-### Option B: Build from Source
-
-1. **Install [Rust][rust]** (if not already installed):
-
-   ```text
-   # Visit https://rustup.rs and follow the instructions
-   ```
-
-2. **Clone the repository:**
-
-   ```powershell
-   git clone https://github.com/freddiehaddad/ms2cc.git
-   cd ms2cc
-   ```
-
-3. **Build the release version:**
-
-   ```powershell
-   cargo build --release
-   ```
-
-4. **Find the executable:**
-
-   ```text
-   The built executable will be at: target\release\ms2cc.exe
-   ```
-
-## Quick Start
-
-### Build with Detailed Logging
+Download the Windows executable from the
+[releases page](https://github.com/freddiehaddad/ms2cc/releases), or build it
+from source:
 
 ```powershell
-cd C:\path\to\your\project
-msbuild YourSolution.sln /fileLogger /fileLoggerParameters:LogFile=msbuild.log;Verbosity=detailed
+cargo build --release
 ```
 
-The `Verbosity=detailed` parameter is required. Without it, [MSBuild][msbuild-cli] doesn't log enough information. We use MSBuild's built-in file logger (`/fileLogger /fileLoggerParameters:`) rather than PowerShell redirection (`> msbuild.log`) because Windows PowerShell 5.1 writes redirected output as UTF-16 LE, which ms2cc cannot read. The `/fileLogger` approach writes the file as UTF-8 regardless of shell. (Short forms `/fl` and `/flp:` work identically.)
+The executable is written to `target\release\ms2cc.exe`.
 
-> **Visual Studio IDE:** In Visual Studio 2019/2022 use **Build > Project Only > Build Only ProjectName**. When the Output window finishes scrolling, right-click inside it, choose [**Save Build Log**][vs-build-logging], and save it as `msbuild.log` with **MSBuild Project Build Log (\*.log)**.
+Place `ms2cc.exe` in a directory listed in `PATH`, or invoke it using its full
+path.
 
-### Generate compile_commands.json
+## Quick start
+
+Open a Visual Studio Developer Command Prompt, change to your repository, and
+pass `ms2cc` your solution or project:
 
 ```powershell
-ms2cc -i msbuild.log -o compile_commands.json -p
+cd C:\path\to\repository
+ms2cc .\Project.sln
 ```
 
-The `-p` flag pretty-prints the output, which is useful for the verification step below. Omit it for production use to keep the file smaller.
+This creates `compile_commands.json` in the current directory.
 
-### Configure Your Editor
-
-See the [Editor Configuration](#editor-configuration) section below for your specific editor.
-
-### Verify the Output
+For a large repository with a top-level `.proj` file, pass only that file.
+`ms2cc` follows project references automatically:
 
 ```powershell
-Test-Path compile_commands.json
-Get-Content compile_commands.json | Select-Object -First 8
+ms2cc .\Build.proj
 ```
 
-The file should exist and contain one JSON object per compiler invocation, for example:
+You do not need to list every project below it.
 
-```json
-[
-  {
-    "directory": "C:\\path\\to\\your\\project",
-    "command": "CL.exe /c /nologo /W4 /std:c++20 /Iinclude \"C:\\path\\to\\your\\project\\src\\main.cpp\"",
-    "file": "C:\\path\\to\\your\\project\\src\\main.cpp"
-  }
-]
-```
-
-If the file is missing or empty, revisit the logging step.
-
-## Usage
-
-### Command-Line Options
-
-ms2cc supports several options for customizing behavior:
+Configuration and platform are optional. `ms2cc` uses the values provided by
+MSBuild and the project. If the solution has more than one possible choice and
+no clear default, choose one explicitly:
 
 ```powershell
-# Basic usage (uses defaults: msbuild.log → compile_commands.json)
-ms2cc
-
-# Specify custom input and output paths
-ms2cc -i build\debug.log -o compile_commands.json
-
-# Pretty-print the JSON output (useful for viewing/debugging)
-ms2cc -i msbuild.log -o compile_commands.json -p
-
-# Quiet mode (only show errors)
-ms2cc -i msbuild.log -o compile_commands.json -l error
-
-# Disable progress bars (useful for scripting)
-ms2cc -i msbuild.log -o compile_commands.json --no-progress
-
-# Overwrite mode (replace instead of merging with existing database)
-ms2cc -i msbuild.log -o compile_commands.json --overwrite
-
-# Show all available options
-ms2cc --help
-
-# Show version
-ms2cc --version
+ms2cc .\Project.sln --configuration Debug --platform x64
 ```
 
-### Available Options
+## More examples
 
-| Option                     | Description                                          | Default                 |
-| -------------------------- | ---------------------------------------------------- | ----------------------- |
-| `-i, --input-file <FILE>`  | Path to MSBuild log file                             | `msbuild.log`           |
-| `-o, --output-file <FILE>` | Path to output compile_commands.json                 | `compile_commands.json` |
-| `-l, --log-level <LEVEL>`  | Logging level (off, error, warn, info, debug, trace) | `info`                  |
-| `-p, --pretty-print`       | Pretty-print JSON output                             | (disabled)              |
-| `--overwrite`              | Replace output file instead of merging               | (merge enabled)         |
-| `--no-progress`            | Disable progress bar output                          | (progress bars enabled) |
-| `-h, --help`               | Display help information                             | -                       |
-| `-V, --version`            | Display version information                          | -                       |
-
-### Incremental Builds
-
-By default, ms2cc **merges** new entries into an existing `compile_commands.json` rather than replacing it. This means incremental builds work correctly — only the recompiled files are updated while entries for unchanged files are preserved.
-
-Entries are matched by their source file path and project directory. If a file was recompiled, its entry is updated. If a file wasn't recompiled (and therefore not in the new build log), its existing entry is left untouched.
-
-To start fresh and replace the entire database, use `--overwrite`:
+Write the database somewhere else:
 
 ```powershell
-ms2cc -i msbuild.log -o compile_commands.json --overwrite
+ms2cc .\Project.sln --output C:\work\compile_commands.json
 ```
 
-## Editor Configuration
-
-Once you've generated `compile_commands.json`, configure your editor to use it.
-
-> **Note:** The `compile_commands.json` file should be in your project root directory.
-
-### Visual Studio Code
-
-#### Using Microsoft C/C++ Extension
-
-1. Install the extension
-   1. Open Extensions (`Ctrl+Shift+X`)
-   2. Search for "C/C++"
-   3. Install the official [Microsoft C/C++ extension][ms-cpp-ext]
-
-2. Configure
-
-   Create or edit `.vscode/c_cpp_properties.json`:
-
-   ```json
-   {
-     "configurations": [
-       {
-         "name": "Win32",
-         "compileCommands": "${workspaceFolder}/compile_commands.json",
-         "intelliSenseMode": "windows-msvc-x64"
-       }
-     ],
-     "version": 4
-   }
-   ```
-
-   > **Note:** You can place the `compile_commands.json` file in the `.vscode` directory if you prefer:
-
-   ```json
-   {
-     "configurations": [
-       {
-         "name": "Win32",
-         "compileCommands": "${workspaceFolder}/.vscode/compile_commands.json",
-         "intelliSenseMode": "windows-msvc-x64"
-       }
-     ],
-     "version": 4
-   }
-   ```
-
-3. Reload VSCode
-
-   Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
-
-4. Confirm the setup by opening a C/C++ file, pressing `Ctrl+Shift+P`, running `C/C++: Log Diagnostics`, and making sure the output reports no parsing or IntelliSense errors.
-
-#### Using clangd
-
-1. Install the [clangd][clangd] extension
-   1. Open VSCode Extensions (`Ctrl+Shift+X`)
-   2. Search for "clangd"
-   3. Install the official `llvm-vs-code-extensions.vscode-clangd` extension
-   4. If prompted to download clangd, click "Download"
-
-2. Disable Microsoft C++ IntelliSense
-
-   Create or edit `.vscode/settings.json` in your project:
-
-   ```json
-   {
-     "C_Cpp.intelliSenseEngine": "disabled",
-     "clangd.arguments": [
-       "--compile-commands-dir=${workspaceFolder}",
-       "--background-index",
-       "--clang-tidy"
-     ]
-   }
-   ```
-
-3. Reload VSCode
-
-   Press `Ctrl+Shift+P`, type "Reload Window", and press Enter.
-
-> **Note for MSVC Projects**: For optimal clangd compatibility with MSVC code, copy `.clangd.template` to `.clangd` in your project root. This configuration suppresses common MSVC-specific warnings. See [Using clangd with MSVC Projects](docs/CLANGD_USAGE.md) for details.
-
-### Other Editors
-
-Most modern editors have excellent clangd support. For detailed setup instructions including:
-
-- **Neovim**
-- **Zed**
-- **Cursor**
-- **Helix**
-- Other LSP-compatible editors
-
-See the **[Using clangd with MSVC Projects](docs/CLANGD_USAGE.md)** guide for complete configuration examples, compatibility information, and troubleshooting.
-
-**Quick clangd setup:**
-
-1. Generate `compile_commands.json` with ms2cc
-2. (Optional but recommended) Copy `.clangd.template` to `.clangd` in your project root
-3. Configure your editor to use clangd (see guide for editor-specific examples)
-
-## Troubleshooting
-
-### No compile_commands.json generated or file is empty
-
-**Cause:** MSBuild log doesn't have enough detail.
-
-**Solution:** Ensure you used `Verbosity=detailed` when building:
+Combine independent solutions or projects into one database:
 
 ```powershell
-msbuild YourSolution.sln /fileLogger /fileLoggerParameters:LogFile=msbuild.log;Verbosity=detailed
+ms2cc .\Engine.sln .\Tools.sln --output .\compile_commands.json
 ```
 
-### Some source files are missing from compile_commands.json
+Pass a property required by your build:
 
-**Possible causes:**
+```powershell
+ms2cc .\Build.proj --property BuildFlavor=Production
+```
 
-- MSBuild verbosity too low
-- Some projects were skipped during build
+`--property` may be repeated.
 
-**Solutions:**
+Use a specific MSBuild installation:
 
-1. Use `Verbosity=detailed`
-2. Do a clean rebuild and use `--overwrite`: `msbuild YourSolution.sln /t:Rebuild /fileLogger /fileLoggerParameters:LogFile=msbuild.log;Verbosity=detailed; ms2cc --overwrite`
+```powershell
+ms2cc .\Project.sln `
+  --msbuild C:\BuildTools\MSBuild\Current\Bin\MSBuild.exe
+```
 
-> **Note:** With incremental builds, ms2cc merges new entries into the existing database by default. If you've done a full rebuild and want a clean database, use `--overwrite` to avoid retaining stale entries from a previous build configuration.
+Run `ms2cc --help` to see every option.
 
-### Editor doesn't recognize compile_commands.json
+## Projects with setup scripts
 
-**Solution:**
+Some repositories provide a script that configures package locations, tools, or
+environment variables. Run `ms2cc` from the same command prompt after running
+that script:
 
-1. Ensure `compile_commands.json` is in your **project root directory**
-2. Check your editor configuration (see [Editor Configuration](#editor-configuration))
-3. For clangd, verify it's installed and accessible:
+```cmd
+cd C:\path\to\repository
+call setup-build-environment.cmd
+ms2cc Project.sln
+```
 
-   ```powershell
-   clangd --version
-   ```
+`ms2cc` does not require changes to your project files or build scripts.
 
-4. Reload/restart your editor
+## How it works
 
-### Duplicate symbols or conflicting IntelliSense
+`ms2cc` asks MSBuild for the C and C++ files in your project and the compiler
+options for each file. It follows referenced projects, checks that every source
+file has a compiler command, and then writes the database.
 
-**Cause:** Multiple IntelliSense engines running simultaneously.
+It reads the project settings without compiling object files, so a clean build
+is not required. Projects that use C++20 modules or header units may run MSVC's
+dependency scanner, but its temporary files are kept outside the project.
 
-**Solution (VSCode):** Disable Microsoft C++ IntelliSense when using clangd:
+Each successful run replaces the output database with the complete set of
+projects requested on the command line. If anything fails, `ms2cc` leaves the
+existing database unchanged.
 
-In `.vscode/settings.json`:
+## Using the database with clangd
+
+Most editors find `compile_commands.json` automatically when it is placed at the
+workspace root. You can also point clangd to its directory:
+
+```text
+clangd --compile-commands-dir=C:\path\to\workspace
+```
+
+For VS Code with the clangd extension:
 
 ```json
 {
-  "C_Cpp.intelliSenseEngine": "disabled"
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}",
+    "--background-index"
+  ]
 }
 ```
 
-### clangd not found
+`ms2cc` keeps the compiler options reported by MSBuild, including precompiled
+header settings. Current clangd versions understand most MSVC options and remove
+output-only options themselves. Do not remove options from the database unless
+clangd reports a specific problem.
 
-**Solution:**
+See [docs/CLANGD_USAGE.md](docs/CLANGD_USAGE.md) for help with MSVC precompiled
+headers and clangd.
 
-1. Download clangd from [https://github.com/clangd/clangd/releases](https://github.com/clangd/clangd/releases)
-2. Add to your PATH, or configure the full path in your editor settings
+## FAQ
 
-### clangd shows too many warnings with MSVC code
+### What files can I pass to ms2cc?
 
-**Cause:** clangd reports some MSVC-specific warnings that aren't relevant (e.g., `#pragma optimize`, missing field initializers).
+`ms2cc` accepts:
 
-**Solution:** Use the provided `.clangd` configuration template:
+- `.sln` and `.slnx` solution files
+- `.vcxproj` Visual C++ projects
+- `.proj` files that refer to other projects
 
-1. Copy `.clangd.template` to `.clangd` in your project root
-2. Customize as needed (see comments in the template)
-3. For detailed information, see [Using clangd with MSVC Projects](docs/CLANGD_USAGE.md)
+Referenced projects are followed automatically, so one top-level file is
+normally enough.
 
-The template suppresses common MSVC-specific warnings while keeping important diagnostics.
+### Do I need to run a clean build first?
 
-## LSP and AI: Better Together
+No. `ms2cc` reads the project settings directly from MSBuild.
 
-With the rise of AI-powered coding assistants, some developers wonder whether language-server tooling is still relevant. It is -- arguably more than before. The two solve different problems and work best in combination.
+Packages, imported project files, and generated source files still need to
+exist. Run any restore, setup, or source-generation steps required by your
+repository before running `ms2cc`.
 
-### Right tool for the job
+### Does ms2cc modify or build my project?
 
-| Task                                  | Best tool                                  |
-| ------------------------------------- | ------------------------------------------ |
-| "What's the type of this variable?"   | Language server                            |
-| "Find every caller of this function"  | Language server                            |
-| "Rename this symbol everywhere"       | Language server                            |
-| "Show me errors as I type"            | Language server                            |
-| "Did my last edit break anything?"    | Language server (diagnostics in ms)        |
-| "Jump to this symbol's definition"    | Language server                            |
-| "Write a function that does X"        | LLM                                        |
-| "Why is this code buggy?"             | LLM (often)                                |
-| "Explain this 500-line file"          | LLM                                        |
-| "Generate boilerplate for this design"| LLM                                        |
+No. It reads project information through MSBuild and writes only the requested
+compilation database. For C++20 modules and header units, it may run MSVC's
+dependency scanner in a temporary directory, but it does not compile object
+files or link the project.
 
-Generation, exploration, and natural-language reasoning are LLM strengths. Symbol-precise queries, refactoring, and millisecond-latency feedback are language-server strengths. Neither replaces the other.
+### Do I need to specify a configuration and platform?
 
-### Why language servers still matter
+Not when MSBuild or your project already provides a clear default. Use
+`--configuration` and `--platform` when you want a specific configuration or
+when a solution has more than one possible choice.
 
-1. Deterministic, low-latency answers
+### Why should I run the repository's setup script first?
 
-   Language servers like [clangd][clangd] maintain an up-to-date AST, symbol table, and type information, and typically respond in 10-200 ms warm. LLMs are non-deterministic by design (sampling) and run 500 ms-5 s+. For typing flow, "go to definition", and refactor-rename, you want the correct answer every time, not a probabilistic best-guess.
+Some projects use environment variables to locate compilers, packages, SDKs, or
+generated files. Running the setup script gives `ms2cc` the same environment as
+the normal build.
 
-2. Project-semantics precision
+### What happens to an existing compile_commands.json?
 
-   LLMs reason over tokens, not syntax trees. Even with retrieval or agent-based navigation, they:
-   - lack precise understanding of type systems (templates, overload resolution, SFINAE)
-   - can hallucinate unseen functions or APIs
-   - struggle with multi-file, incremental code state
-   - cannot maintain a full AST-level view the way a compiler or language server can
+A successful run replaces it with a complete new database for every root passed
+on the command line. It is not merged with the old file.
 
-   Language servers plug directly into the compiler toolchain; that precision isn't replaceable by probabilistic models alone.
+If generation fails, the existing file is left unchanged.
 
-3. Cost, privacy, and offline
+### Does ms2cc support CMake, Make, or other build systems?
 
-   Language servers run locally and free. LLM agents cost money per token and typically send code to a remote server. For interactive feedback (squiggles, hover, completion) you want a local tool.
+No. `ms2cc` is specifically for Visual C++ projects evaluated by MSBuild. CMake
+can generate `compile_commands.json` directly, while tools such as Bear may be
+more appropriate for other build systems.
 
-### Agents build *on* LSP, not instead of it
+### Why is a property from an MSBuild response file missing?
 
-Modern coding assistants -- GitHub Copilot, Cursor, Windsurf, Zed AI, Cline, Aider, Continue -- combine three layers:
+`ms2cc` does not automatically load `MSBuild.rsp` or `Directory.Build.rsp`. Pass
+any required property explicitly:
 
-- **LLM** for reasoning and generation
-- **Language servers** for semantic signals (types, diagnostics, symbol info, references)
-- **Indexers** for global symbol search and embeddings
+```powershell
+ms2cc .\Build.proj --property Name=Value
+```
 
-The LLM is the loud part; the language server is the grounding part. When a chat-style assistant answers "what's the type of `foo`?", the editor passes LSP-derived type info into the prompt -- the model doesn't guess. And the agentic "edit -> check diagnostics -> fix" inner loop that makes coding agents tractable is built on LSP: without millisecond-latency diagnostics, the loop becomes "edit -> run full build -> parse stderr -> fix" with seconds-to-minutes per iteration.
+### What if MSBuild cannot be found?
 
-Concrete evidence that agents lean on LSP:
+Use a Visual Studio Developer Command Prompt, or pass the path explicitly with
+`--msbuild`.
 
-- **Cursor's Composer** consumes LSP signals heavily; disabling the language server visibly degrades edit quality.
-- **Aider** built its own structural index (a Tree-sitter "repo-map") for setups where LSP wasn't reliable -- they needed structural signals badly enough to reinvent a subset of LSP themselves.
-- The **[Model Context Protocol (MCP)][mcp]** ecosystem ships multiple LSP-as-MCP-server implementations precisely so agents can call language servers directly as tools.
-- Agentic CLIs (Claude Code, Codex CLI, GitHub Copilot CLI, Cline) all leverage LSP via the editor or a wrapper when available.
+### What if a project takes longer than ten minutes?
 
-If LSP -- or any comparable source of structural code intelligence -- didn't exist, coding agents would be worse, not better. This isn't theoretical; it's observable in every serious agent shipping today.
+Increase the timeout:
 
-### Why this matters more in an AI-heavy workflow
+```powershell
+ms2cc .\Build.proj --timeout 1200
+```
 
-Coding agents write code faster than humans can hand-check it. Catching their mistakes -- type errors, broken refactors, calls to APIs that don't exist -- requires fast, accurate semantic feedback as you read and review the generated code. That feedback comes from a language server reading `compile_commands.json`. Without it, you're relying on the LLM to have been correct in the first place, which is exactly the failure mode the language server is there to catch.
+The timeout is measured in seconds.
 
-That's why ms2cc exists -- to give your C/C++ projects the language-server foundation that makes both manual coding and AI assistance dramatically more effective. Run ms2cc whenever you regenerate build logs so `compile_commands.json` stays fresh as projects, configurations, or toolchains change.
+## Development
 
-## References
-
-- [Language Server Protocol (LSP)][lsp]
-- [clangd - C/C++ Language Server][clangd]
-- [clangd Configuration][clangd-config]
-- [Using clangd with MSVC Projects](docs/CLANGD_USAGE.md)
-- [`compile_commands.json` Format][compile-commands]
-- [Microsoft C/C++ Extension for VSCode][ms-cpp-ext]
-- [MSBuild Command-Line Reference][msbuild-cli]
-- [Visual Studio Build Logging][vs-build-logging]
-- [Model Context Protocol (MCP)][mcp]
-- [Rust Programming Language][rust]
-
-[lsp]: https://microsoft.github.io/language-server-protocol/
-[clangd]: https://clangd.llvm.org/
-[clangd-config]: https://clangd.llvm.org/config.html
-[compile-commands]: https://clang.llvm.org/docs/JSONCompilationDatabase.html
-[ms-cpp-ext]: https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools
-[msbuild-cli]: https://learn.microsoft.com/en-us/visualstudio/msbuild/msbuild-command-line-reference
-[vs-build-logging]: https://learn.microsoft.com/en-us/visualstudio/ide/build-log-file-visual-studio
-[rust]: https://www.rust-lang.org/
-[mcp]: https://modelcontextprotocol.io/
-[LICENSE]: LICENSE.txt
+```powershell
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
 
 ## License
 

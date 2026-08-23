@@ -1,0 +1,11 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Release" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="consumer\consumer.vcxproj" />
+  <Project Path="library\library.vcxproj" />
+  <Project Path="excluded\excluded.vcxproj">
+    <Build Project="false" />
+  </Project>
+</Solution>

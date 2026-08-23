@@ -1,0 +1,13 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <Platform Name="Any CPU" />
+    <ProjectType Extension=".vcxproj">
+      <Platform Solution="*|Any CPU" Project="Win32" />
+    </ProjectType>
+  </Configurations>
+  <Project Path="basic\basic.vcxproj">
+    <Build Solution="Debug|Any CPU" Project="false" />
+  </Project>
+</Solution>

@@ -1,0 +1,9 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Target Name="Ms2ccFixtureImportedTarget" BeforeTargets="GetClCommandLines">
+    <ItemGroup>
+      <ClCompile>
+        <PreprocessorDefinitions>MS2CC_IMPORTED_AFTER=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      </ClCompile>
+    </ItemGroup>
+  </Target>
+</Project>

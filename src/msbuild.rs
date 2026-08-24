@@ -447,7 +447,7 @@ fn configure_suspended(_command: &mut Command) {}
 fn resume_child(child: &std::process::Child) -> Result<()> {
     use std::mem::size_of;
     use windows_sys::Win32::{
-        Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
+        Foundation::INVALID_HANDLE_VALUE,
         System::{
             Diagnostics::ToolHelp::{
                 CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First,
@@ -457,33 +457,32 @@ fn resume_child(child: &std::process::Child) -> Result<()> {
         },
     };
 
+    // SAFETY: The flags and process ID are valid for a system-wide thread snapshot.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
-        return Err(std::io::Error::last_os_error()).context("CreateToolhelp32Snapshot failed");
-    }
+    let snapshot = OwnedHandle::from_invalid(snapshot, INVALID_HANDLE_VALUE)
+        .context("CreateToolhelp32Snapshot failed")?;
+    // SAFETY: THREADENTRY32 is a plain C data structure initialized before use.
     let mut entry: THREADENTRY32 = unsafe { std::mem::zeroed() };
     entry.dwSize = size_of::<THREADENTRY32>() as u32;
     let mut found = false;
-    let mut success = unsafe { Thread32First(snapshot, &mut entry) } != 0;
+    // SAFETY: The snapshot handle and writable entry pointer remain valid for this call.
+    let mut success = unsafe { Thread32First(snapshot.raw(), &mut entry) } != 0;
     while success {
         if entry.th32OwnerProcessID == child.id() {
+            // SAFETY: The thread ID came from the active ToolHelp snapshot.
             let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
-            if thread.is_null() {
-                unsafe { CloseHandle(snapshot) };
-                return Err(std::io::Error::last_os_error()).context("OpenThread failed");
-            }
-            let resumed = unsafe { ResumeThread(thread) };
-            unsafe { CloseHandle(thread) };
+            let thread = OwnedHandle::from_null(thread).context("OpenThread failed")?;
+            // SAFETY: The owned handle grants THREAD_SUSPEND_RESUME access.
+            let resumed = unsafe { ResumeThread(thread.raw()) };
             if resumed == u32::MAX {
-                unsafe { CloseHandle(snapshot) };
                 return Err(std::io::Error::last_os_error()).context("ResumeThread failed");
             }
             found = true;
             break;
         }
-        success = unsafe { Thread32Next(snapshot, &mut entry) } != 0;
+        // SAFETY: The snapshot handle and writable entry pointer remain valid for this call.
+        success = unsafe { Thread32Next(snapshot.raw(), &mut entry) } != 0;
     }
-    unsafe { CloseHandle(snapshot) };
     if !found {
         bail!("could not locate the suspended MSBuild process thread");
     }
@@ -496,38 +495,75 @@ fn resume_child(_child: &std::process::Child) -> Result<()> {
 }
 
 #[cfg(windows)]
-struct ProcessJob(windows_sys::Win32::Foundation::HANDLE);
+struct OwnedHandle(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+impl OwnedHandle {
+    fn from_null(handle: windows_sys::Win32::Foundation::HANDLE) -> Result<Self> {
+        if handle.is_null() {
+            Err(std::io::Error::last_os_error().into())
+        } else {
+            Ok(Self(handle))
+        }
+    }
+
+    fn from_invalid(
+        handle: windows_sys::Win32::Foundation::HANDLE,
+        invalid: windows_sys::Win32::Foundation::HANDLE,
+    ) -> Result<Self> {
+        if handle == invalid {
+            Err(std::io::Error::last_os_error().into())
+        } else {
+            Ok(Self(handle))
+        }
+    }
+
+    fn raw(&self) -> windows_sys::Win32::Foundation::HANDLE {
+        self.0
+    }
+}
+
+#[cfg(windows)]
+impl Drop for OwnedHandle {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+
+        // SAFETY: OwnedHandle contains a valid, uniquely owned Windows handle.
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(windows)]
+struct ProcessJob(OwnedHandle);
 
 #[cfg(windows)]
 impl ProcessJob {
     fn new() -> Result<Self> {
         use std::{mem::size_of, ptr};
-        use windows_sys::Win32::{
-            Foundation::CloseHandle,
-            System::JobObjects::{
-                CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-                SetInformationJobObject,
-            },
+        use windows_sys::Win32::System::JobObjects::{
+            CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
         };
 
+        // SAFETY: Null security attributes and name request an unnamed job with default security.
         let handle = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
-        if handle.is_null() {
-            return Err(std::io::Error::last_os_error()).context("CreateJobObjectW failed");
-        }
-
+        let handle = OwnedHandle::from_null(handle).context("CreateJobObjectW failed")?;
+        // SAFETY: This Windows structure is valid when zero-initialized.
         let mut information: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // SAFETY: The handle is valid and the pointer and size describe `information`.
         let configured = unsafe {
             SetInformationJobObject(
-                handle,
+                handle.raw(),
                 JobObjectExtendedLimitInformation,
                 (&information as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
                 size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             )
         };
         if configured == 0 {
-            unsafe { CloseHandle(handle) };
             return Err(std::io::Error::last_os_error()).context("SetInformationJobObject failed");
         }
         Ok(Self(handle))
@@ -537,7 +573,9 @@ impl ProcessJob {
         use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
 
-        let assigned = unsafe { AssignProcessToJobObject(self.0, child.as_raw_handle() as _) };
+        // SAFETY: Both handles are valid and remain alive for the duration of the call.
+        let assigned =
+            unsafe { AssignProcessToJobObject(self.0.raw(), child.as_raw_handle() as _) };
         if assigned == 0 {
             return Err(std::io::Error::last_os_error()).context("AssignProcessToJobObject failed");
         }
@@ -546,18 +584,10 @@ impl ProcessJob {
 
     fn terminate(&self) {
         use windows_sys::Win32::System::JobObjects::TerminateJobObject;
-        unsafe {
-            TerminateJobObject(self.0, 1);
-        }
-    }
-}
 
-#[cfg(windows)]
-impl Drop for ProcessJob {
-    fn drop(&mut self) {
-        use windows_sys::Win32::Foundation::CloseHandle;
+        // SAFETY: The job handle is valid and uniquely owned by this ProcessJob.
         unsafe {
-            CloseHandle(self.0);
+            TerminateJobObject(self.0.raw(), 1);
         }
     }
 }

@@ -131,6 +131,7 @@ fn replace_file(source: &Path, destination: &Path) -> Result<()> {
 
     let source: Vec<u16> = source.as_os_str().encode_wide().chain([0]).collect();
     let destination: Vec<u16> = destination.as_os_str().encode_wide().chain([0]).collect();
+    // SAFETY: Both buffers are valid, NUL-terminated UTF-16 paths for the duration of the call.
     let result = unsafe {
         MoveFileExW(
             source.as_ptr(),

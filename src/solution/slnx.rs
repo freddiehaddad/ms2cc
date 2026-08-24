@@ -19,63 +19,24 @@ pub(super) fn parse(path: &Path, base_properties: &Properties) -> Result<Solutio
         .with_context(|| format!("failed to read solution {}", path.display()))?;
     reader.config_mut().trim_text(true);
     let mut buffer = Vec::new();
-    let mut stack = Vec::new();
-    let mut build_types = Vec::new();
-    let mut platforms = Vec::new();
-    let mut project_types = Vec::new();
-    let mut projects = Vec::new();
-    let mut current_project_type = None;
-    let mut current_project = None;
+    let mut parser = SlnxParser::default();
 
     loop {
         match reader.read_event_into(&mut buffer) {
             Ok(Event::Start(event)) => {
                 let name = event.name().as_ref().to_owned();
                 let attributes = xml_attributes(&event)?;
-                let parent = stack.last().map(String::as_str);
-                process_slnx_element(
-                    &name,
-                    &attributes,
-                    parent,
-                    false,
-                    &mut build_types,
-                    &mut platforms,
-                    &mut current_project_type,
-                    &mut current_project,
-                    &mut project_types,
-                    &mut projects,
-                )?;
-                stack.push(name);
+                parser.process_element(&name, &attributes, false)?;
+                parser.stack.push(name);
             }
             Ok(Event::Empty(event)) => {
                 let name = event.name().as_ref().to_owned();
                 let attributes = xml_attributes(&event)?;
-                let parent = stack.last().map(String::as_str);
-                process_slnx_element(
-                    &name,
-                    &attributes,
-                    parent,
-                    true,
-                    &mut build_types,
-                    &mut platforms,
-                    &mut current_project_type,
-                    &mut current_project,
-                    &mut project_types,
-                    &mut projects,
-                )?;
+                parser.process_element(&name, &attributes, true)?;
             }
             Ok(Event::End(event)) => {
                 let name = event.name().as_ref().to_owned();
-                if name.eq_ignore_ascii_case("Project") {
-                    if let Some(project) = current_project.take() {
-                        projects.push(project);
-                    }
-                } else if name.eq_ignore_ascii_case("ProjectType")
-                    && let Some(project_type) = current_project_type.take()
-                {
-                    project_types.push(project_type);
-                }
-                stack.pop();
+                parser.finish_element(&name);
             }
             Ok(Event::Eof) => break,
             Ok(_) => {}
@@ -88,17 +49,21 @@ pub(super) fn parse(path: &Path, base_properties: &Properties) -> Result<Solutio
 
     let directory = path.parent().unwrap_or(Path::new("."));
     let (solution_build_type, solution_platform) =
-        select_slnx_configuration(base_properties, &build_types, &platforms)?;
+        select_slnx_configuration(base_properties, &parser.build_types, &parser.platforms)?;
     let mut resolved = Vec::new();
-    for project in projects {
+    for project in parser.projects {
         if !is_project_path(&project.path) {
             continue;
         }
         let extension = Path::new(&project.path)
             .extension()
             .and_then(|value| value.to_str());
-        let has_custom_type =
-            find_project_type(&project_types, project.project_type.as_deref(), extension).is_some();
+        let has_custom_type = find_project_type(
+            &parser.project_types,
+            project.project_type.as_deref(),
+            extension,
+        )
+        .is_some();
         let mut rules =
             if !has_custom_type && project.path.to_ascii_lowercase().ends_with(".vcxproj") {
                 builtin_vcxproj_rules()
@@ -107,12 +72,12 @@ pub(super) fn parse(path: &Path, base_properties: &Properties) -> Result<Solutio
             };
         append_project_type_rules(
             &mut rules,
-            &project_types,
+            &parser.project_types,
             project.project_type.as_deref(),
             extension,
             &mut HashSet::new(),
         );
-        append_default_project_type_rules(&mut rules, &project_types, &mut HashSet::new());
+        append_default_project_type_rules(&mut rules, &parser.project_types, &mut HashSet::new());
         rules.extend(project.rules);
 
         let build = rule_value(
@@ -222,51 +187,71 @@ fn solution_configuration_contents(projects: &[ResolvedSlnxProject]) -> String {
     xml
 }
 
-#[allow(clippy::too_many_arguments)]
-fn process_slnx_element(
-    name: &str,
-    attributes: &HashMap<String, String>,
-    parent: Option<&str>,
-    empty: bool,
-    build_types: &mut Vec<String>,
-    platforms: &mut Vec<String>,
-    current_project_type: &mut Option<SlnxProjectType>,
-    current_project: &mut Option<SlnxProject>,
-    project_types: &mut Vec<SlnxProjectType>,
-    projects: &mut Vec<SlnxProject>,
-) -> Result<()> {
-    if name.eq_ignore_ascii_case("ProjectType")
-        && parent.is_some_and(|value| value.eq_ignore_ascii_case("Configurations"))
-    {
-        *current_project_type = Some(SlnxProjectType::from_attributes(attributes)?);
-        if empty && let Some(project_type) = current_project_type.take() {
-            project_types.push(project_type);
+#[derive(Default)]
+struct SlnxParser {
+    stack: Vec<String>,
+    build_types: Vec<String>,
+    platforms: Vec<String>,
+    project_types: Vec<SlnxProjectType>,
+    projects: Vec<SlnxProject>,
+    current_project_type: Option<SlnxProjectType>,
+    current_project: Option<SlnxProject>,
+}
+
+impl SlnxParser {
+    fn process_element(
+        &mut self,
+        name: &str,
+        attributes: &HashMap<String, String>,
+        empty: bool,
+    ) -> Result<()> {
+        let parent = self.stack.last().map(String::as_str);
+        if name.eq_ignore_ascii_case("ProjectType")
+            && parent.is_some_and(|value| value.eq_ignore_ascii_case("Configurations"))
+        {
+            self.current_project_type = Some(SlnxProjectType::from_attributes(attributes)?);
+            if empty && let Some(project_type) = self.current_project_type.take() {
+                self.project_types.push(project_type);
+            }
+        } else if name.eq_ignore_ascii_case("Project") {
+            self.current_project = Some(SlnxProject::from_attributes(attributes)?);
+            if empty && let Some(project) = self.current_project.take() {
+                self.projects.push(project);
+            }
+        } else if self.current_project_type.is_none()
+            && self.current_project.is_none()
+            && parent.is_some_and(|value| value.eq_ignore_ascii_case("Configurations"))
+            && name.eq_ignore_ascii_case("BuildType")
+        {
+            push_named_dimension(&mut self.build_types, attributes, "BuildType")?;
+        } else if self.current_project_type.is_none()
+            && self.current_project.is_none()
+            && parent.is_some_and(|value| value.eq_ignore_ascii_case("Configurations"))
+            && name.eq_ignore_ascii_case("Platform")
+        {
+            push_named_dimension(&mut self.platforms, attributes, "Platform")?;
+        } else if let Some(rule) = slnx_rule(name, attributes)? {
+            if let Some(project) = &mut self.current_project {
+                project.rules.push(rule);
+            } else if let Some(project_type) = &mut self.current_project_type {
+                project_type.rules.push(rule);
+            }
         }
-    } else if name.eq_ignore_ascii_case("Project") {
-        *current_project = Some(SlnxProject::from_attributes(attributes)?);
-        if empty && let Some(project) = current_project.take() {
-            projects.push(project);
-        }
-    } else if current_project_type.is_none()
-        && current_project.is_none()
-        && parent.is_some_and(|value| value.eq_ignore_ascii_case("Configurations"))
-        && name.eq_ignore_ascii_case("BuildType")
-    {
-        push_named_dimension(build_types, attributes, "BuildType")?;
-    } else if current_project_type.is_none()
-        && current_project.is_none()
-        && parent.is_some_and(|value| value.eq_ignore_ascii_case("Configurations"))
-        && name.eq_ignore_ascii_case("Platform")
-    {
-        push_named_dimension(platforms, attributes, "Platform")?;
-    } else if let Some(rule) = slnx_rule(name, attributes)? {
-        if let Some(project) = current_project {
-            project.rules.push(rule);
-        } else if let Some(project_type) = current_project_type {
-            project_type.rules.push(rule);
-        }
+        Ok(())
     }
-    Ok(())
+
+    fn finish_element(&mut self, name: &str) {
+        if name.eq_ignore_ascii_case("Project") {
+            if let Some(project) = self.current_project.take() {
+                self.projects.push(project);
+            }
+        } else if name.eq_ignore_ascii_case("ProjectType")
+            && let Some(project_type) = self.current_project_type.take()
+        {
+            self.project_types.push(project_type);
+        }
+        self.stack.pop();
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

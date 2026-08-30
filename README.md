@@ -199,8 +199,9 @@ If generation fails, the existing file is left unchanged.
 ### Does ms2cc support CMake, Make, or other build systems?
 
 No. `ms2cc` is specifically for Visual C++ projects evaluated by MSBuild. CMake
-can generate `compile_commands.json` directly, while tools such as Bear may be
-more appropriate for other build systems.
+can generate `compile_commands.json` directly, while tools such as
+[Bear](https://github.com/rizsotto/Bear) may be more appropriate for other build
+systems.
 
 ### Why is a property from an MSBuild response file missing?
 
